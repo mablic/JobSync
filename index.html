@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/src/assets/logo.png" />
+    <link href="/src/style.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="JobSync - AI-powered job application tracking. Forward your emails and let AI automatically track your job search progress." />
+    <title>JobSync.fyi - AI-Powered Job Application Tracker</title>
+    
+    <!-- Google Analytics -->
+    <script>
+      // Load GA Measurement ID from environment
+      window.GA_MEASUREMENT_ID = '%VITE_GA_MEASUREMENT_ID%';
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=%VITE_GA_MEASUREMENT_ID%"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', window.GA_MEASUREMENT_ID || '%VITE_GA_MEASUREMENT_ID%');
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

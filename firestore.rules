@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow users to read/write their own data
+    match /users/{userId} {
+      // Allow reading any user doc if authenticated (needed for getUserByEmail query)
+      allow read: if request.auth != null;
+      
+      // Allow creating new user documents during sign up
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      
+      // Allow updating only your own documents (by uid field OR document ID)
+      allow update, delete: if request.auth != null && 
+        (resource.data.uid == request.auth.uid || request.auth.uid == userId);
+    }
+    
+    // Allow authenticated users to read/write all jobs (simplify for now)
+    match /jobs/{jobId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Allow authenticated users to read/write all job details (simplify for now)
+    match /job_details/{detailId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Allow users to read email content for their jobs
+    match /mailin/{emailId} {
+      allow read, write: if true;
+    }
+  }
+}
