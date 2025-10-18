@@ -1,18 +1,33 @@
 # JobSync.fyi
 
-A modern job application tracking web application built with React, Firebase, and AI-powered features to help users manage their job search process efficiently.
+A modern, AI-powered job application tracking platform that automatically organizes your job search by forwarding application emails to your personal JobSync address. Built with React, Firebase, and Google's Gemini AI.
 
 ## 🚀 Features
 
-- **User Authentication**: Secure sign up, sign in, and password recovery
-- **Job Application Dashboard**: Track and manage all your job applications in one place
-- **Email Integration**: Parse and extract job details from emails
-- **Manual Entry**: Add job applications manually with a user-friendly interface
-- **Role Management**: Edit and organize job application details
-- **AI-Powered**: Leverage Google's Gemini AI for intelligent job data extraction
+### Core Features
+
+- **Smart Email Forwarding**: Get your unique email address (e.g., `ABC123@jobsync.fyi`) and forward job application emails to automatically track them
+- **AI-Powered Email Parsing**: Gemini AI automatically extracts company names, job titles, locations, salaries, and application stages from emails
+- **Intelligent Stage Detection**: AI determines whether an email is an application confirmation, screening update, interview invitation, offer, or rejection
+- **Dynamic Application Timeline**: Visual timeline showing your progress through each stage with email history
+- **Real-time Dashboard**: Track all applications with filterable views (Active, Today's Updates, Applied, Screening, Interviews, Offers, Rejected)
+
+### Management Features
+
+- **Manual Application Entry**: Add applications manually if they don't arrive via email
+- **Edit Applications**: Update job details, stages, locations, salaries, and recruiter contacts
+- **Email Stage Management**: Move individual emails between stages and automatically sync with the job's current stage
+- **Duplicate Detection**: Automatically identifies and merges duplicate job applications
+- **Delete Applications**: Remove unwanted applications and all associated data
+
+### User Experience
+
+- **User Authentication**: Secure sign up with email/password or Google OAuth
+- **Custom Email Codes**: Personalize your JobSync email address (up to 10 characters, alphanumeric)
 - **Dark/Light Theme**: Toggle between dark and light modes for comfortable viewing
-- **Responsive Design**: Fully responsive UI built with Tailwind CSS
-- **Analytics**: Track user engagement and page views
+- **Fully Responsive**: Beautiful UI that works seamlessly on desktop, tablet, and mobile
+- **Instant Updates**: Optimized UI updates without full page reloads
+- **Analytics Integration**: Track user engagement and page views with Google Analytics
 
 ## 🛠️ Tech Stack
 
@@ -25,10 +40,12 @@ A modern job application tracking web application built with React, Firebase, an
 
 ### Backend
 
-- **Firebase Authentication** - User management
-- **Firebase Firestore** - NoSQL database
-- **Firebase Cloud Functions** - Serverless backend
-- **Google Gemini AI** - AI-powered features
+- **Firebase Authentication** - User management with email/password and Google OAuth
+- **Firebase Firestore** - NoSQL database for storing users, jobs, job_details, and emails
+- **Firebase Cloud Functions** - Serverless backend for email processing
+- **Firebase Hosting** - Static site hosting
+- **Google Gemini 2.0 Flash** - AI model for intelligent email parsing and data extraction
+- **CloudMailin** - Email receiving service that forwards emails to Firebase Functions
 
 ## 📋 Prerequisites
 
@@ -61,16 +78,30 @@ Before you begin, ensure you have the following installed:
 
 3. **Set up environment variables**
 
-   Create a `.env` file in the root directory with your configuration:
+   Create a `.env` file in the root directory with your Firebase configuration:
 
    ```env
-   # Add your environment variables here
+   # Firebase Configuration
    VITE_FIREBASE_API_KEY=your_api_key
    VITE_FIREBASE_AUTH_DOMAIN=your_auth_domain
    VITE_FIREBASE_PROJECT_ID=your_project_id
    VITE_FIREBASE_STORAGE_BUCKET=your_storage_bucket
    VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
    VITE_FIREBASE_APP_ID=your_app_id
+   VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
+
+   # Email Domain
+   VITE_EMAIL_DOMAIN=jobsync.fyi
+
+   # Google Analytics
+   VITE_GA_MEASUREMENT_ID=your_ga_id
+   ```
+
+   Create a `functions/.env` file for Cloud Functions:
+
+   ```env
+   # Google Gemini AI API Key
+   GEMINI_API_KEY=your_gemini_api_key
    ```
 
 4. **Configure Firebase**
@@ -113,38 +144,54 @@ npm run preview
 ```
 JobSync.fyi/
 ├── src/
-│   ├── assets/          # Static assets (images, etc.)
+│   ├── assets/          # Static assets (images, logos)
 │   ├── components/      # Reusable React components
 │   ├── contexts/        # React Context providers
-│   │   └── GlobalProvider.jsx
-│   ├── lib/             # Utility libraries
-│   │   ├── firebase.js  # Firebase configuration
-│   │   ├── emailCode.js # Email parsing logic
-│   │   ├── jobs.js      # Job-related functions
-│   │   └── users.js     # User-related functions
+│   │   └── GlobalProvider.jsx  # Auth and user data context
+│   ├── lib/             # Core library functions
+│   │   ├── firebase.js  # Firebase configuration and initialization
+│   │   ├── jobs.js      # Job CRUD operations and data transformation
+│   │   └── users.js     # User authentication and management
 │   ├── nav/             # Navigation components
-│   │   └── Nav.jsx
+│   │   └── Nav.jsx      # Main navigation bar
 │   ├── pages/           # Page components
-│   │   ├── dashboard/   # Dashboard pages and components
+│   │   ├── dashboard/   # Dashboard and job tracking
+│   │   │   ├── Dashboard_Main.jsx      # Main dashboard view
+│   │   │   └── components/
+│   │   │       ├── Role_Edit.jsx       # Edit job modal
+│   │   │       ├── Email_Details.jsx   # Email timeline modal
+│   │   │       ├── Manual_Apply.jsx    # Manual job entry modal
+│   │   │       ├── Type_Select.jsx     # Stage selector modal
+│   │   │       └── Delete_Confirmation.jsx  # Delete confirmation modal
 │   │   ├── user/        # User authentication pages
-│   │   ├── Home.jsx
-│   │   └── About.jsx
+│   │   │   ├── Sign_In.jsx
+│   │   │   ├── Sign_Up.jsx
+│   │   │   ├── Forgot_PW.jsx
+│   │   │   └── Profile.jsx
+│   │   ├── Home.jsx     # Landing page
+│   │   ├── About.jsx    # About page
+│   │   ├── Terms.jsx    # Terms of service
+│   │   └── Privacy.jsx  # Privacy policy
 │   ├── theme/           # Theme configuration
-│   │   └── Theme.jsx
+│   │   └── Theme.jsx    # Dark/light theme settings
 │   ├── toast/           # Toast notification system
-│   │   └── Toast.jsx
+│   │   └── Toast.jsx    # Toast notifications
 │   ├── utils/           # Utility functions
-│   │   └── analytics.js
-│   ├── App.jsx          # Main App component
+│   │   └── analytics.js # Google Analytics integration
+│   ├── App.jsx          # Main App component with routing
 │   ├── main.jsx         # Entry point
-│   └── index.css        # Global styles
+│   └── index.css        # Global Tailwind CSS styles
 ├── functions/           # Firebase Cloud Functions
-│   ├── index.js         # Functions entry point
+│   ├── index.js         # receiveEmail function for email processing
+│   ├── test-ai.js       # AI testing utility
 │   └── package.json     # Functions dependencies
 ├── public/              # Public static files
 ├── dist/                # Production build output
-├── firebase.json        # Firebase configuration
+├── firebase.json        # Firebase project configuration
+├── firestore.rules      # Firestore security rules
+├── firestore.indexes.json  # Firestore composite indexes
 ├── vite.config.js       # Vite configuration
+├── tailwind.config.js   # Tailwind CSS configuration
 └── package.json         # Project dependencies
 ```
 
@@ -168,17 +215,119 @@ firebase deploy --only hosting
 firebase deploy --only functions
 ```
 
+### Deploy only Firestore rules
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+### Deploy only Firestore indexes
+
+```bash
+firebase deploy --only firestore:indexes
+```
+
+## 🗄️ Database Schema
+
+### Collections
+
+**users**
+
+- `uid` - Firebase Auth user ID
+- `name` - User's full name
+- `email` - User's email address
+- `emailCode` - Unique 6-10 character code (e.g., "ABC123")
+- `forwardingEmail` - Full forwarding email (e.g., "ABC123@jobsync.fyi")
+- `plan` - Subscription plan (default: "free")
+- `createdAt` - Account creation timestamp
+- `updatedAt` - Last profile update timestamp
+
+**jobs**
+
+- `Company` - Company name
+- `Job_Title` - Position title
+- `Location` - Job location
+- `Salary` - Salary information
+- `Contact` - Recruiter/contact email
+- `Current_Stage` - Current application stage (applied, screening, interview1-6, offer, rejected)
+- `Applied_Date` - Application submission date
+- `Last_Updated` - Last modification timestamp
+- `Tracking_Code` - User's email tracking code
+- `User_ID` - Reference to users collection
+- `Email_IDs` - Array of associated email IDs
+- `Notes` - User notes
+
+**job_details**
+
+- `Job_ID` - Reference to jobs collection
+- `Email_ID` - Reference to mailin collection
+- `Stage` - Stage this email represents
+- `Sender` - Email sender address
+- `Subject` - Email subject line
+- `Content_Summary` - AI-generated summary
+- `Sent_Date` - Email sent date (formatted string)
+- `Update_Time` - Processing timestamp
+- `Tracking_Code` - User's email tracking code
+- `User_ID` - Reference to users collection
+
+**mailin**
+
+- `Forwarder_Email` - User's personal email that forwarded the message
+- `Original_Sender` - Original email sender
+- `Original_Sent_At` - Original email timestamp
+- `Subject` - Email subject
+- `Content_Text` - Plain text content
+- `Content_HTML` - HTML content
+- `Content_Details` - Cleaned content for AI processing
+- `Processed` - Processing status (boolean)
+- `Processing_Status` - Status (pending, processing, completed, failed)
+- `Processing_Error` - Error message if failed
+- `Tracking_Code` - User's email tracking code
+- `Received_At` - Timestamp when received by CloudMailin
+
 ## 📱 Available Routes
 
-- `/` - Home page
-- `/about` - About page
-- `/Sign_In` - User sign in
+- `/` - Home page with feature overview
+- `/about` - About us page
+- `/Sign_In` - User sign in (email/password or Google)
 - `/Sign_Up` - User registration
 - `/Forgot_PW` - Password recovery
-- `/profile` - User profile
-- `/dashboard` - Job application dashboard
+- `/profile` - User profile and settings
+- `/dashboard` - Job application dashboard (protected)
 - `/terms` - Terms of service
 - `/privacy` - Privacy policy
+
+## 🔄 How It Works
+
+1. **Sign Up**: Create an account and get your unique forwarding email (e.g., `ABC123@jobsync.fyi`)
+2. **Forward Emails**: Forward any job application emails to your JobSync address
+3. **AI Processing**: Gemini AI automatically extracts:
+   - Company name
+   - Job title
+   - Location
+   - Salary (if mentioned)
+   - Application stage (applied, screening, interview, offer, rejected)
+   - Email summary
+4. **Track Progress**: View all your applications in the dashboard with visual timelines
+5. **Stay Organized**: Filter by status, search by company/position, and manage your job search efficiently
+
+## 🤖 AI Email Processing
+
+The AI processing pipeline:
+
+1. **Email Reception**: CloudMailin receives emails forwarded to `{CODE}@jobsync.fyi`
+2. **Content Extraction**: Clean and extract relevant content from HTML/plain text
+3. **AI Analysis**: Gemini 2.0 Flash analyzes the email to determine:
+   - Is this a job application email?
+   - What company sent it?
+   - What position is it for?
+   - What stage does this email represent?
+   - What are the key details (location, salary, next steps)?
+4. **Database Update**:
+   - Create or update job entry in `jobs` collection
+   - Store email details in `job_details` collection
+   - Keep original email in `mailin` collection
+5. **Stage Synchronization**: Automatically sync stages between job_details and jobs collections
 
 ## 🤝 Contributing
 
@@ -200,11 +349,39 @@ This project is private and proprietary.
 
 ## 🙏 Acknowledgments
 
-- React team for the amazing library
-- Firebase for the comprehensive backend solution
-- Google for Gemini AI integration
-- Tailwind CSS for the utility-first CSS framework
+- **React Team** - For the amazing React 19 library
+- **Firebase Team** - For the comprehensive backend-as-a-service platform
+- **Google Gemini AI** - For powerful AI capabilities in email analysis
+- **Tailwind CSS** - For the utility-first CSS framework
+- **CloudMailin** - For reliable email receiving service
+- **Vite Team** - For the blazing fast build tool
+
+## 🔒 Security Notes
+
+- Never commit `.env` files to version control
+- Keep your Firebase configuration and API keys secure
+- Firestore security rules are configured to protect user data
+- Email forwarding addresses are unique per user
+- All authentication is handled securely by Firebase Auth
+
+## 📊 Performance Optimizations
+
+- Optimized state updates to avoid unnecessary re-renders
+- Lazy loading of routes with React Router
+- Efficient Firestore queries with proper indexing
+- Batched database updates for improved performance
+- Client-side data transformation and caching
+
+## 🐛 Known Issues & Future Improvements
+
+- [ ] Add email templates for better AI parsing
+- [ ] Implement bulk email import
+- [ ] Add calendar integration for interview scheduling
+- [ ] Export applications to CSV/PDF
+- [ ] Mobile app version
+- [ ] Email notification system
+- [ ] Advanced analytics and insights
 
 ---
 
-**Note**: Make sure to configure your Firebase project and add the appropriate environment variables before running the application.
+**Note**: Make sure to configure your Firebase project, set up CloudMailin, obtain a Gemini API key, and add the appropriate environment variables before running the application.
