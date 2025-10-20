@@ -50,6 +50,14 @@ const SignUp = () => {
     })
   }
 
+  const handleAgreementChange = (e) => {
+    const { name, checked } = e.target
+    setAgreements(prev => ({
+      ...prev,
+      [name]: checked
+    }))
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     
@@ -277,96 +285,100 @@ const SignUp = () => {
             </div>
 
             {/* Terms and Privacy Agreement */}
-            <div className="space-y-3">
-              <div 
-                className="p-4 rounded-lg border"
-                style={{ 
-                  backgroundColor: agreements.termsAgreed ? `${theme.status.offer}10` : theme.background.secondary,
-                  borderColor: agreements.termsAgreed ? theme.status.offer : theme.border.light
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  {agreements.termsAgreed ? (
-                    <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: theme.status.offer }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: theme.text.tertiary }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <div className="space-y-4">
+              {/* Terms of Service Checkbox */}
+              <div className="flex items-start gap-3">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    id="termsAgreed"
+                    name="termsAgreed"
+                    checked={agreements.termsAgreed}
+                    onChange={handleAgreementChange}
+                    className="w-5 h-5 rounded border-2 focus:ring-2 focus:ring-offset-2 transition-all"
+                    style={{
+                      backgroundColor: agreements.termsAgreed ? theme.primary[600] : theme.background.secondary,
+                      borderColor: agreements.termsAgreed ? theme.primary[600] : theme.border.medium,
+                      focusRingColor: theme.primary[500]
+                    }}
+                  />
+                  {agreements.termsAgreed && (
+                    <svg 
+                      className="absolute top-0.5 left-0.5 w-4 h-4 text-white pointer-events-none" 
+                      fill="currentColor" 
+                      viewBox="0 0 20 20"
+                    >
+                      <path 
+                        fillRule="evenodd" 
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
+                        clipRule="evenodd" 
+                      />
                     </svg>
                   )}
-                  <div className="flex-1">
-                    <p className="text-sm font-medium mb-1" style={{ color: theme.text.primary }}>
+                </div>
+                <div className="flex-1">
+                  <label 
+                    htmlFor="termsAgreed" 
+                    className="text-sm font-medium cursor-pointer"
+                    style={{ color: theme.text.primary }}
+                  >
+                    I agree to the{' '}
+                    <Link 
+                      to="/terms" 
+                      className="underline hover:opacity-80 transition-opacity"
+                      style={{ color: theme.primary[600] }}
+                    >
                       Terms of Service
-                    </p>
-                    <p className="text-xs mb-2" style={{ color: theme.text.secondary }}>
-                      {agreements.termsAgreed 
-                        ? '✓ You have agreed to our Terms of Service' 
-                        : 'Please read and agree to our Terms of Service'}
-                    </p>
-                    {!agreements.termsAgreed && (
-                      <button
-                        type="button"
-                        onClick={() => navigate('/terms', { 
-                          state: { 
-                            from: 'signup', 
-                            currentAgreements: agreements,
-                            formData: formData 
-                          } 
-                        })}
-                        className="text-xs font-medium hover:opacity-80 transition-opacity"
-                        style={{ color: theme.primary[600] }}
-                      >
-                        Read Terms →
-                      </button>
-                    )}
-                  </div>
+                    </Link>
+                  </label>
                 </div>
               </div>
 
-              <div 
-                className="p-4 rounded-lg border"
-                style={{ 
-                  backgroundColor: agreements.privacyAgreed ? `${theme.status.offer}10` : theme.background.secondary,
-                  borderColor: agreements.privacyAgreed ? theme.status.offer : theme.border.light
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  {agreements.privacyAgreed ? (
-                    <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: theme.status.offer }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: theme.text.tertiary }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              {/* Privacy Policy Checkbox */}
+              <div className="flex items-start gap-3">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    id="privacyAgreed"
+                    name="privacyAgreed"
+                    checked={agreements.privacyAgreed}
+                    onChange={handleAgreementChange}
+                    className="w-5 h-5 rounded border-2 focus:ring-2 focus:ring-offset-2 transition-all"
+                    style={{
+                      backgroundColor: agreements.privacyAgreed ? theme.primary[600] : theme.background.secondary,
+                      borderColor: agreements.privacyAgreed ? theme.primary[600] : theme.border.medium,
+                      focusRingColor: theme.primary[500]
+                    }}
+                  />
+                  {agreements.privacyAgreed && (
+                    <svg 
+                      className="absolute top-0.5 left-0.5 w-4 h-4 text-white pointer-events-none" 
+                      fill="currentColor" 
+                      viewBox="0 0 20 20"
+                    >
+                      <path 
+                        fillRule="evenodd" 
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
+                        clipRule="evenodd" 
+                      />
                     </svg>
                   )}
-                  <div className="flex-1">
-                    <p className="text-sm font-medium mb-1" style={{ color: theme.text.primary }}>
+                </div>
+                <div className="flex-1">
+                  <label 
+                    htmlFor="privacyAgreed" 
+                    className="text-sm font-medium cursor-pointer"
+                    style={{ color: theme.text.primary }}
+                  >
+                    I agree to the{' '}
+                    <Link 
+                      to="/privacy" 
+                      className="underline hover:opacity-80 transition-opacity"
+                      style={{ color: theme.primary[600] }}
+                    >
                       Privacy Policy
-                    </p>
-                    <p className="text-xs mb-2" style={{ color: theme.text.secondary }}>
-                      {agreements.privacyAgreed 
-                        ? '✓ You have agreed to our Privacy Policy' 
-                        : 'Please read and agree to our Privacy Policy'}
-                    </p>
-                    {!agreements.privacyAgreed && (
-                      <button
-                        type="button"
-                        onClick={() => navigate('/privacy', { 
-                          state: { 
-                            from: 'signup', 
-                            currentAgreements: agreements,
-                            formData: formData 
-                          } 
-                        })}
-                        className="text-xs font-medium hover:opacity-80 transition-opacity"
-                        style={{ color: theme.primary[600] }}
-                      >
-                        Read Privacy Policy →
-                      </button>
-                    )}
-                  </div>
+                    </Link>
+                  </label>
                 </div>
               </div>
             </div>

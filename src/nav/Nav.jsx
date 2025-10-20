@@ -12,7 +12,8 @@ const Nav = () => {
 
   const navLinks = [
     { path: '/', label: 'Home' },
-    { path: '/dashboard', label: 'Dashboard', requireAuth: true },
+    { path: '/dashboard', label: 'Dashboard' },
+    { path: '/analytics', label: 'Analytics' },
     { path: '/about', label: 'About' },
   ]
 
@@ -57,28 +58,38 @@ const Nav = () => {
           <div className="hidden lg:flex items-center space-x-1">
             {/* Navigation Links */}
             <div className="flex items-center space-x-1 mr-6">
-              {navLinks.map((link) => {
-                if (link.requireAuth && !isAuthenticated) return null
-                return (
-                  <Link
-                    key={link.path}
-                    to={link.path}
-                    style={{ 
-                      color: isActive(link.path) ? theme.text.primary : theme.text.secondary,
-                      backgroundColor: isActive(link.path) ? theme.background.secondary : 'transparent'
-                    }}
-                    className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 relative group"
-                  >
+              {navLinks.map((link) => (
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  style={{ 
+                    color: isActive(link.path) ? theme.text.primary : theme.text.secondary,
+                    backgroundColor: isActive(link.path) ? theme.background.secondary : 'transparent'
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 relative group"
+                >
+                  <div className="flex items-center gap-2">
                     {link.label}
-                    {isActive(link.path) && (
-                      <div 
-                        className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-6 h-0.5 rounded-full"
-                        style={{ backgroundColor: theme.primary[600] }}
-                      />
+                    {!isAuthenticated && (link.path === '/dashboard' || link.path === '/analytics') && (
+                      <span 
+                        className="text-xs px-1.5 py-0.5 rounded-full"
+                        style={{ 
+                          backgroundColor: theme.primary[100],
+                          color: theme.primary[600]
+                        }}
+                      >
+                        Preview
+                      </span>
                     )}
-                  </Link>
-                )
-              })}
+                  </div>
+                  {isActive(link.path) && (
+                    <div 
+                      className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-6 h-0.5 rounded-full"
+                      style={{ backgroundColor: theme.primary[600] }}
+                    />
+                  )}
+                </Link>
+              ))}
             </div>
             
             {/* Theme Toggle */}
@@ -192,23 +203,33 @@ const Nav = () => {
             <div className="px-4 pt-4 pb-6 space-y-3">
               {/* Navigation Links */}
               <div className="space-y-2">
-                {navLinks.map((link) => {
-                  if (link.requireAuth && !isAuthenticated) return null
-                  return (
-                    <Link
-                      key={link.path}
-                      to={link.path}
-                      onClick={() => setMobileMenuOpen(false)}
-                      style={{ 
-                        color: isActive(link.path) ? theme.text.primary : theme.text.secondary,
-                        backgroundColor: isActive(link.path) ? theme.background.secondary : 'transparent'
-                      }}
-                      className="block px-4 py-3 rounded-xl text-base font-medium transition-all duration-200"
-                    >
+                {navLinks.map((link) => (
+                  <Link
+                    key={link.path}
+                    to={link.path}
+                    onClick={() => setMobileMenuOpen(false)}
+                    style={{ 
+                      color: isActive(link.path) ? theme.text.primary : theme.text.secondary,
+                      backgroundColor: isActive(link.path) ? theme.background.secondary : 'transparent'
+                    }}
+                    className="block px-4 py-3 rounded-xl text-base font-medium transition-all duration-200"
+                  >
+                    <div className="flex items-center gap-2">
                       {link.label}
-                    </Link>
-                  )
-                })}
+                      {!isAuthenticated && (link.path === '/dashboard' || link.path === '/analytics') && (
+                        <span 
+                          className="text-xs px-1.5 py-0.5 rounded-full"
+                          style={{ 
+                            backgroundColor: theme.primary[100],
+                            color: theme.primary[600]
+                          }}
+                        >
+                          Preview
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                ))}
               </div>
 
               {/* Theme Toggle */}

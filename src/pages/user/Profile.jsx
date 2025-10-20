@@ -6,7 +6,7 @@ import { useToast } from '../../toast/Toast'
 
 const Profile = () => {
   const { theme } = useTheme()
-  const { user, userData, loading, isAuthenticated, refreshUserData } = useAuth()
+  const { user, userData, loading, isAuthenticated, refreshUserData, signOut } = useAuth()
   const navigate = useNavigate()
   const showToast = useToast()
   const [showPasswordSection, setShowPasswordSection] = useState(false)
@@ -32,10 +32,8 @@ const Profile = () => {
 
   const handleSignOut = async () => {
     try {
-      const { signOut } = await import('../../lib/users.js')
+      showToast('Signing out...', 'info')
       await signOut()
-      showToast('Signed out successfully', 'success')
-      navigate('/Sign_In')
     } catch (error) {
       console.error('Error signing out:', error)
       showToast('Error signing out: ' + error.message, 'error')

@@ -14,6 +14,7 @@ import SignUp from './pages/user/Sign_Up'
 import Forgot_PW from './pages/user/Forgot_PW'
 import Profile from './pages/user/Profile'
 import TrackerMain from './pages/dashboard/Dashboard_Main'
+import Analytics from './pages/dashboard/Analytics'
 
 // Theme Context
 const ThemeContext = createContext()
@@ -41,10 +42,10 @@ function App() {
   }
 
   return (
-    <GlobalProvider>
+    <Router>
       <ThemeContext.Provider value={{ theme, isDarkMode, toggleTheme }}>
-        <ToastProvider>
-          <Router>
+        <GlobalProvider>
+          <ToastProvider>
             <AnalyticsTracker />
             <div className="min-h-screen" style={{ backgroundColor: theme.background.secondary }}>
               <Nav />
@@ -58,12 +59,13 @@ function App() {
                 <Route path="/Forgot_PW" element={<Forgot_PW />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/dashboard" element={<TrackerMain />} />
+                <Route path="/analytics" element={<Analytics />} />
               </Routes>
             </div>
-          </Router>
-        </ToastProvider>
+          </ToastProvider>
+        </GlobalProvider>
       </ThemeContext.Provider>
-    </GlobalProvider>
+    </Router>
   )
 }
 

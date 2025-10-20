@@ -56,12 +56,26 @@ export const GlobalProvider = ({ children }) => {
   // Sign out function
   const signOut = async () => {
     try {
-      await firebaseSignOut()
+      // First clean up all states
       setUser(null)
       setUserData(null)
       setIsAuthenticated(false)
+      
+      // Then sign out from Firebase
+      await firebaseSignOut()
+      
+      // Finally navigate to sign in page
+      window.location.replace('/Sign_In')
     } catch (error) {
       console.error('Error signing out:', error)
+      // If error occurs, restore the authenticated state
+      const currentUser = await getCurrentUser()
+      if (currentUser) {
+        setUser(currentUser)
+        setIsAuthenticated(true)
+        const data = await getCurrentUserData(currentUser.uid)
+        setUserData(data)
+      }
       throw error
     }
   }

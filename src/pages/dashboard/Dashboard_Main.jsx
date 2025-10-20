@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useTheme } from '../../App'
 import { useAuth } from '../../contexts/GlobalProvider'
+import DashboardDemo from './components/Dashboard_Demo'
 import { useToast } from '../../toast/Toast'
 import { getJobsByTrackingCode, transformJobsForDashboard, updateJob, addManualJob, deleteJob } from '../../lib/jobs'
 import RoleEdit from './components/Role_Edit'
@@ -10,12 +12,76 @@ import DeleteConfirmation from './components/Delete_Confirmation'
 
 const TrackerMain = () => {
   const { theme } = useTheme()
-  const { userData } = useAuth()
+  const { userData, isAuthenticated } = useAuth()
   const showToast = useToast()
   const [selectedFilter, setSelectedFilter] = useState('active')
   const [searchTerm, setSearchTerm] = useState('')
+  const [sortBy, setSortBy] = useState('appliedDate') // appliedDate, companyName, roleCount, lastUpdated
+  const [sortOrder, setSortOrder] = useState('desc') // asc, desc
   const [expandedRoles, setExpandedRoles] = useState(new Set())
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [focusedIndex, setFocusedIndex] = useState(-1)
   const [editingRole, setEditingRole] = useState(null)
+
+  // Sort options for the dropdown
+  const sortOptions = [
+    { value: 'appliedDate', label: 'Applied Date', icon: '📅' },
+    { value: 'companyName', label: 'Company Name', icon: '🏢' },
+    { value: 'roleCount', label: 'Number of Roles', icon: '📊' },
+    { value: 'lastUpdated', label: 'Last Updated', icon: '🔄' }
+  ]
+
+  // Close dropdown when clicking outside and handle keyboard navigation
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownOpen && !event.target.closest('.sort-dropdown')) {
+        setDropdownOpen(false)
+        setFocusedIndex(-1)
+      }
+    }
+    
+    const handleKeyDown = (event) => {
+      if (!dropdownOpen) return
+      
+      switch (event.key) {
+        case 'Escape':
+          setDropdownOpen(false)
+          setFocusedIndex(-1)
+          break
+        case 'ArrowDown':
+          event.preventDefault()
+          setFocusedIndex(prev => (prev + 1) % sortOptions.length)
+          break
+        case 'ArrowUp':
+          event.preventDefault()
+          setFocusedIndex(prev => prev <= 0 ? sortOptions.length - 1 : prev - 1)
+          break
+        case 'Enter':
+        case ' ':
+          event.preventDefault()
+          if (focusedIndex >= 0 && sortOptions[focusedIndex]) {
+            const selectedOption = sortOptions[focusedIndex].value
+            if (selectedOption === sortBy) {
+              setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+            } else {
+              const defaultOrder = ['appliedDate', 'lastUpdated'].includes(selectedOption) ? 'desc' : 'asc'
+              setSortBy(selectedOption)
+              setSortOrder(defaultOrder)
+            }
+            setDropdownOpen(false)
+          }
+          break
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [dropdownOpen, focusedIndex, sortBy, sortOrder, sortOptions])
   const [editingCompany, setEditingCompany] = useState(null)
   const [emailDetails, setEmailDetails] = useState(null)
   const [showManualApply, setShowManualApply] = useState(false)
@@ -28,8 +94,15 @@ const TrackerMain = () => {
   // Fetch jobs data from Firebase
   useEffect(() => {
     const fetchJobs = async () => {
+      if (!isAuthenticated) {
+        setLoading(false)
+        setCompaniesData([])
+        return
+      }
+
       if (!userData?.emailCode) {
         setLoading(false)
+        setError('No tracking code found. Please check your profile settings.')
         return
       }
 
@@ -47,7 +120,7 @@ const TrackerMain = () => {
     }
 
     fetchJobs()
-  }, [userData])
+  }, [userData, isAuthenticated])
 
   // Use real data if available, otherwise use empty array
   const displayData = companiesData.length > 0 ? companiesData : []
@@ -82,29 +155,141 @@ const TrackerMain = () => {
     { key: 'rejected', label: 'Rejected', count: allRoles.filter(r => r.currentStage === 'rejected').length }
   ]
 
-  // Filter companies based on search and filter
+  // Sort helpers
+  const getCompanySortValue = (company, sortBy) => {
+    switch (sortBy) {
+      case 'companyName':
+        return company.company.toLowerCase()
+      case 'roleCount':
+        return company.roles.length
+      case 'appliedDate':
+        // Get the most recent applied date from all roles in the company
+        const dates = company.roles
+          .map(role => {
+            if (role.rawData?.Applied_Date) {
+              return role.rawData.Applied_Date.toDate ? 
+                role.rawData.Applied_Date.toDate() : 
+                new Date(role.rawData.Applied_Date)
+            }
+            return new Date(0) // Fallback to epoch for roles without applied date
+          })
+          .filter(date => date.getTime() > 0)
+        return dates.length > 0 ? Math.max(...dates.map(d => d.getTime())) : 0
+      case 'lastUpdated':
+        // Get the most recent update from all roles in the company
+        const updates = company.roles
+          .map(role => {
+            if (role.rawData?.Last_Updated) {
+              return role.rawData.Last_Updated.toDate ? 
+                role.rawData.Last_Updated.toDate() : 
+                new Date(role.rawData.Last_Updated)
+            }
+            return new Date(0)
+          })
+          .filter(date => date.getTime() > 0)
+        return updates.length > 0 ? Math.max(...updates.map(d => d.getTime())) : 0
+      default:
+        return company.company.toLowerCase()
+    }
+  }
+
+  // Filter and sort companies
   const filteredCompanies = displayData
     .map(company => {
       const filteredRoles = company.roles.filter(role => {
-    const matchesFilter = selectedFilter === 'all' || 
-          (selectedFilter === 'active' && role.currentStage !== 'rejected') ||
-          (selectedFilter === 'today' && isUpdatedToday(role)) ||
-          (selectedFilter === 'applied' && role.currentStage === 'applied') ||
-          (selectedFilter === 'screening' && role.currentStage === 'screening') ||
-          (selectedFilter === 'interview' && ['interview1', 'interview2'].includes(role.currentStage)) ||
-          (selectedFilter === 'offer' && role.currentStage === 'offer') ||
-          (selectedFilter === 'rejected' && role.currentStage === 'rejected')
-    
-    const matchesSearch = searchTerm === '' || 
-          company.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          role.position.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    return matchesFilter && matchesSearch
-  })
+        const matchesFilter = selectedFilter === 'all' || 
+              (selectedFilter === 'active' && role.currentStage !== 'rejected') ||
+              (selectedFilter === 'today' && isUpdatedToday(role)) ||
+              (selectedFilter === 'applied' && role.currentStage === 'applied') ||
+              (selectedFilter === 'screening' && role.currentStage === 'screening') ||
+              (selectedFilter === 'interview' && ['interview1', 'interview2'].includes(role.currentStage)) ||
+              (selectedFilter === 'offer' && role.currentStage === 'offer') ||
+              (selectedFilter === 'rejected' && role.currentStage === 'rejected')
+        
+        const matchesSearch = searchTerm === '' || 
+              company.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              role.position.toLowerCase().includes(searchTerm.toLowerCase())
+        
+        return matchesFilter && matchesSearch
+      })
 
-      return filteredRoles.length > 0 ? { ...company, roles: filteredRoles } : null
+      if (filteredRoles.length > 0) {
+        // Sort roles within each company
+        const sortedRoles = [...filteredRoles].sort((a, b) => {
+          let aValue, bValue
+          
+          switch (sortBy) {
+            case 'appliedDate':
+              aValue = a.rawData?.Applied_Date ? 
+                (a.rawData.Applied_Date.toDate ? a.rawData.Applied_Date.toDate().getTime() : new Date(a.rawData.Applied_Date).getTime()) : 0
+              bValue = b.rawData?.Applied_Date ? 
+                (b.rawData.Applied_Date.toDate ? b.rawData.Applied_Date.toDate().getTime() : new Date(b.rawData.Applied_Date).getTime()) : 0
+              break
+            case 'lastUpdated':
+              aValue = a.rawData?.Last_Updated ? 
+                (a.rawData.Last_Updated.toDate ? a.rawData.Last_Updated.toDate().getTime() : new Date(a.rawData.Last_Updated).getTime()) : 0
+              bValue = b.rawData?.Last_Updated ? 
+                (b.rawData.Last_Updated.toDate ? b.rawData.Last_Updated.toDate().getTime() : new Date(b.rawData.Last_Updated).getTime()) : 0
+              break
+            case 'companyName':
+              // When sorting by company name, sort roles by position within each company
+              aValue = (a.position || '').toLowerCase()
+              bValue = (b.position || '').toLowerCase()
+              break
+            default:
+              aValue = (a.position || '').toLowerCase()
+              bValue = (b.position || '').toLowerCase()
+          }
+          
+          if (sortBy === 'appliedDate' || sortBy === 'lastUpdated') {
+            return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
+          } else {
+            if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1
+            if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1
+            return 0
+          }
+        })
+        
+        return { ...company, roles: sortedRoles }
+      }
+      
+      return null
     })
     .filter(company => company !== null)
+    .sort((a, b) => {
+      const aValue = getCompanySortValue(a, sortBy)
+      const bValue = getCompanySortValue(b, sortBy)
+      
+      if (sortBy === 'roleCount') {
+        // For role count, higher numbers first by default (desc)
+        return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
+      } else if (sortBy === 'appliedDate' || sortBy === 'lastUpdated') {
+        // For dates, more recent first by default (desc)
+        return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
+      } else {
+        // For strings, alphabetical
+        if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1
+        if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1
+        return 0
+      }
+    })
+
+  // Handle sort change
+  const handleSortChange = (newSortBy) => {
+    if (newSortBy === sortBy) {
+      // If same sort by, toggle order
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      // New sort by, set default order based on type
+      const defaultOrder = ['appliedDate', 'lastUpdated'].includes(newSortBy) ? 'desc' : 'asc'
+      setSortBy(newSortBy)
+      setSortOrder(defaultOrder)
+    }
+    setDropdownOpen(false)
+  }
+
+  // Get current sort option
+  const currentSortOption = sortOptions.find(option => option.value === sortBy) || sortOptions[0]
 
   // Toggle role expansion
   const toggleRoleExpansion = (roleId) => {
@@ -274,6 +459,11 @@ const TrackerMain = () => {
   }
 
 
+  // Not logged in state
+  if (!isAuthenticated) {
+    return <DashboardDemo />
+  }
+
   // Loading state
   if (loading) {
     return (
@@ -432,8 +622,9 @@ const TrackerMain = () => {
 
         {/* Filters and Search */}
         <div className="mb-6">
-          {/* Search - Full Width on Top */}
-          <div className="mb-4">
+          {/* Search and Sort Controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+            {/* Search */}
             <div className="relative max-w-md">
               <input
                 type="text"
@@ -457,6 +648,140 @@ const TrackerMain = () => {
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
+            </div>
+
+            {/* Sort Controls */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium" style={{ color: theme.text.secondary }}>
+                Sort by:
+              </span>
+              
+              {/* Custom Dropdown */}
+              <div className="relative sort-dropdown">
+                <button
+                  onClick={() => {
+                    setDropdownOpen(!dropdownOpen)
+                    if (!dropdownOpen) {
+                      setFocusedIndex(sortOptions.findIndex(opt => opt.value === sortBy))
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setDropdownOpen(!dropdownOpen)
+                      if (!dropdownOpen) {
+                        setFocusedIndex(sortOptions.findIndex(opt => opt.value === sortBy))
+                      }
+                    } else if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setDropdownOpen(true)
+                      setFocusedIndex(0)
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all duration-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2"
+                  style={{
+                    backgroundColor: theme.background.primary,
+                    borderColor: dropdownOpen ? theme.primary[600] : theme.border.medium,
+                    color: theme.text.primary,
+                    focusRingColor: theme.primary[600],
+                    minWidth: '200px'
+                  }}
+                >
+                  <span className="text-base">{currentSortOption.icon}</span>
+                  <span className="flex-1 text-left">{currentSortOption.label}</span>
+                  <svg 
+                    className={`w-4 h-4 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Dropdown Menu */}
+                {dropdownOpen && (
+                  <div 
+                    className="absolute top-full left-0 mt-1 w-full rounded-lg shadow-lg border overflow-hidden z-50 animate-in fade-in-0 zoom-in-95 duration-200"
+                    style={{
+                      backgroundColor: theme.background.primary,
+                      borderColor: theme.border.light,
+                      boxShadow: `0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)`
+                    }}
+                  >
+                    {sortOptions.map((option, index) => {
+                      const isSelected = option.value === sortBy
+                      const isFocused = focusedIndex === index
+                      
+                      return (
+                        <button
+                          key={option.value}
+                          onClick={() => handleSortChange(option.value)}
+                          className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors duration-150 text-left ${
+                            isSelected ? 'font-semibold' : ''
+                          }`}
+                          style={{
+                            backgroundColor: isSelected 
+                              ? theme.primary[50] 
+                              : isFocused 
+                                ? theme.background.secondary 
+                                : 'transparent',
+                            color: isSelected ? theme.primary[600] : theme.text.primary,
+                            borderBottom: index < sortOptions.length - 1 ? `1px solid ${theme.border.light}` : 'none'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              e.target.style.backgroundColor = theme.background.secondary
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected && !isFocused) {
+                              e.target.style.backgroundColor = 'transparent'
+                            }
+                          }}
+                          ref={(el) => {
+                            if (isFocused && el) {
+                              el.scrollIntoView({ block: 'nearest' })
+                            }
+                          }}
+                        >
+                          <span className="text-base">{option.icon}</span>
+                          <span className="flex-1">{option.label}</span>
+                          {isSelected && (
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              <button
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className={`p-2 rounded-lg border transition-all hover:opacity-80 ${
+                  sortOrder === 'desc' ? 'ring-2' : ''
+                }`}
+                style={{
+                  backgroundColor: theme.background.primary,
+                  borderColor: theme.border.medium,
+                  color: theme.text.secondary,
+                  ringColor: sortOrder === 'desc' ? theme.primary[600] : 'transparent'
+                }}
+                title={`Sort ${sortOrder === 'asc' ? 'Descending' : 'Ascending'}`}
+              >
+                {sortOrder === 'asc' ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" />
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
 
