@@ -56,25 +56,87 @@ const Analytics = () => {
   const processAnalyticsData = () => {
     if (allRoles.length === 0) return {}
 
-    // Calculate response times
+    // Calculate response times - improved with better date handling and fallbacks
     const responseTimes = allRoles.reduce((acc, role) => {
       const appliedDate = getDateFromRaw(role.rawData, 'Applied_Date')
       if (!appliedDate) return acc
 
       // Find first response after application
       let firstResponse = null
-      Object.values(role.stages).forEach(stage => {
-        if (stage.emails) {
-          stage.emails.forEach(email => {
-            const emailDate = getDateFromRaw(email, 'date')
-            if (emailDate && emailDate > appliedDate) {
-              if (!firstResponse || emailDate < firstResponse) {
-                firstResponse = emailDate
+      
+      // Helper function to safely parse dates
+      const parseDate = (dateValue) => {
+        if (!dateValue) return null
+        try {
+          if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+            return dateValue.toDate()
+          } else if (dateValue instanceof Date) {
+            return dateValue
+          } else if (typeof dateValue === 'string') {
+            const parsed = new Date(dateValue)
+            return isNaN(parsed.getTime()) ? null : parsed
+          } else if (typeof dateValue === 'number') {
+            const parsed = new Date(dateValue)
+            return isNaN(parsed.getTime()) ? null : parsed
+          }
+        } catch (error) {
+          console.warn('Failed to parse date:', dateValue, error)
+        }
+        return null
+      }
+
+      // Method 1: Look through job details in rawData
+      if (role.rawData && role.rawData.details && Array.isArray(role.rawData.details)) {
+        role.rawData.details.forEach(detail => {
+          // Skip the applied stage as that's not a response
+          if (detail.Stage && detail.Stage !== 'applied') {
+            let responseDate = parseDate(detail.Sent_Date) || parseDate(detail.Update_Time)
+            
+            // Check if this is a valid response date after application
+            if (responseDate && !isNaN(responseDate.getTime()) && responseDate > appliedDate) {
+              if (!firstResponse || responseDate < firstResponse) {
+                firstResponse = responseDate
               }
             }
-          })
+          }
+        })
+      }
+      
+      // Method 2: Look through stages and emails (fallback and additional check)
+      if (!firstResponse && role.stages) {
+        Object.values(role.stages).forEach(stage => {
+          if (stage.emails && Array.isArray(stage.emails) && stage.emails.length > 0) {
+            stage.emails.forEach(email => {
+              let emailDate = null
+              
+              // Try different ways to get the email date
+              if (email.date) {
+                emailDate = parseDate(email.date)
+              }
+              
+              if (emailDate && !isNaN(emailDate.getTime()) && emailDate > appliedDate) {
+                if (!firstResponse || emailDate < firstResponse) {
+                  firstResponse = emailDate
+                }
+              }
+            })
+          }
+        })
+      }
+
+      // Method 3: If current stage is beyond 'applied', use the current stage date as response
+      if (!firstResponse && role.currentStage && role.currentStage !== 'applied') {
+        // Try to get a date from the current stage
+        if (role.stages && role.stages[role.currentStage]) {
+          const currentStageData = role.stages[role.currentStage]
+          if (currentStageData.date) {
+            const stageDate = parseDate(currentStageData.date)
+            if (stageDate && !isNaN(stageDate.getTime()) && stageDate > appliedDate) {
+              firstResponse = stageDate
+            }
+          }
         }
-      })
+      }
 
       if (firstResponse) {
         const responseTime = firstResponse - appliedDate
@@ -203,6 +265,9 @@ const Analytics = () => {
         sameDay: responseTimes.total > 0 ? (responseTimes.sameDay / responseTimes.total * 100).toFixed(1) : 0,
         withinWeek: responseTimes.total > 0 ? (responseTimes.withinWeek / responseTimes.total * 100).toFixed(1) : 0,
         overWeek: responseTimes.total > 0 ? (responseTimes.overWeek / responseTimes.total * 100).toFixed(1) : 0,
+        sameDayCount: responseTimes.sameDay,
+        withinWeekCount: responseTimes.withinWeek,
+        overWeekCount: responseTimes.overWeek,
         total: responseTimes.total
       }
     }
@@ -219,12 +284,24 @@ const Analytics = () => {
       { stage: "Offer", count: data.offer || 0, color: theme.status.offer }
     ]
 
-    const total = stages[0].count || 1 // Use first stage (Applied) as total
+    const appliedCount = stages[0].count || 1 // Use first stage (Applied) as baseline
     
     return (
       <div className="space-y-4">
         {stages.map((stage, i) => {
-          const percent = ((stage.count / total) * 100).toFixed(1)
+          // For funnel visualization, show conversion rate from applied stage
+          // Cap at 100% to prevent display issues
+          let conversionRate = 0
+          if (i === 0) {
+            // First stage (Applied) is always 100%
+            conversionRate = 100
+          } else if (appliedCount > 0) {
+            // Later stages show conversion rate from applied
+            conversionRate = Math.min((stage.count / appliedCount) * 100, 100)
+          }
+          
+          const displayPercent = conversionRate.toFixed(1)
+          
           return (
             <div key={stage.stage}>
               <div className="flex items-center justify-between mb-1">
@@ -235,7 +312,7 @@ const Analytics = () => {
                     className="text-xs px-2 py-0.5 rounded-full"
                     style={{ backgroundColor: stage.color + '20', color: stage.color }}
                   >
-                    {percent}%
+                    {i === 0 ? '100.0' : displayPercent}%
                   </span>
                 </div>
               </div>
@@ -243,7 +320,7 @@ const Analytics = () => {
                 <div 
                   className="h-full rounded-full transition-all duration-500"
                   style={{ 
-                    width: `${percent}%`,
+                    width: `${i === 0 ? 100 : Math.min(conversionRate, 100)}%`,
                     backgroundColor: stage.color
                   }}
                 />
@@ -287,17 +364,15 @@ const Analytics = () => {
                 <span style={{ color: theme.text.secondary }}>{role.label}</span>
                 <div className="flex items-center gap-3">
                   <span className="font-medium" style={{ color: theme.text.primary }}>{role.value}</span>
-                  {role.interviews > 0 && (
-                    <span 
-                      className="text-xs px-2 py-0.5 rounded-full"
-                      style={{ 
-                        backgroundColor: theme.status.interview + '20',
-                        color: theme.status.interview
-                      }}
-                    >
-                      {role.interviews} interviews
-                    </span>
-                  )}
+                  <span 
+                    className="text-xs px-3 py-0.5 rounded-full whitespace-nowrap"
+                    style={{ 
+                      backgroundColor: theme.status.interview + '20',
+                      color: theme.status.interview
+                    }}
+                  >
+                    {role.interviews} interviews
+                  </span>
                 </div>
               </div>
             ))}
@@ -316,17 +391,15 @@ const Analytics = () => {
                 <span style={{ color: theme.text.secondary }}>{company.name}</span>
                 <div className="flex items-center gap-3">
                   <span className="font-medium" style={{ color: theme.text.primary }}>{company.applications}</span>
-                  {company.interviews > 0 && (
-                    <span 
-                      className="text-xs px-2 py-0.5 rounded-full"
-                      style={{ 
-                        backgroundColor: theme.status.interview + '20',
-                        color: theme.status.interview
-                      }}
-                    >
-                      {company.interviews} interviews
-                    </span>
-                  )}
+                  <span 
+                    className="text-xs px-3 py-0.5 rounded-full whitespace-nowrap"
+                    style={{ 
+                      backgroundColor: theme.status.interview + '20',
+                      color: theme.status.interview
+                    }}
+                  >
+                    {company.interviews} interviews
+                  </span>
                 </div>
               </div>
             ))}
@@ -816,17 +889,15 @@ const Analytics = () => {
                         {percentage}%
                       </span>
                     )}
-                    {item.interviews > 0 && (
-                      <span 
-                        className="text-xs px-2 py-1 rounded-full font-medium"
-                        style={{ 
-                          backgroundColor: theme.status.interview + '20',
-                          color: theme.status.interview
-                        }}
-                      >
-                        {item.interviews} interviews
-                      </span>
-                    )}
+                    <span 
+                      className="text-xs px-3 py-1 rounded-full font-medium whitespace-nowrap"
+                      style={{ 
+                        backgroundColor: theme.status.interview + '20',
+                        color: theme.status.interview
+                      }}
+                    >
+                      {item.interviews} interviews
+                    </span>
                   </div>
                 </div>
                 <div className="w-full rounded-full h-3" style={{ backgroundColor: theme.background.secondary }}>
@@ -1107,17 +1178,15 @@ const Analytics = () => {
                         <span style={{ color: theme.text.secondary }}>{position}</span>
                         <div className="flex items-center gap-3">
                           <span className="font-medium" style={{ color: theme.text.primary }}>{data.total}</span>
-                          {data.interviews > 0 && (
-                            <span 
-                              className="text-xs px-2 py-0.5 rounded-full"
-                              style={{ 
-                                backgroundColor: theme.status.interview + '20',
-                                color: theme.status.interview
-                              }}
-                            >
-                              {data.interviews} interviews
-                            </span>
-                          )}
+                          <span 
+                            className="text-xs px-3 py-0.5 rounded-full whitespace-nowrap"
+                            style={{ 
+                              backgroundColor: theme.status.interview + '20',
+                              color: theme.status.interview
+                            }}
+                          >
+                            {data.interviews} interviews
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -1139,17 +1208,15 @@ const Analytics = () => {
                         <span style={{ color: theme.text.secondary }}>{company.name}</span>
                         <div className="flex items-center gap-3">
                           <span className="font-medium" style={{ color: theme.text.primary }}>{company.applications}</span>
-                          {company.interviews > 0 && (
-                            <span 
-                              className="text-xs px-2 py-0.5 rounded-full"
-                              style={{ 
-                                backgroundColor: theme.status.interview + '20',
-                                color: theme.status.interview
-                              }}
-                            >
-                              {company.interviews} interviews
-                            </span>
-                          )}
+                          <span 
+                            className="text-xs px-3 py-0.5 rounded-full whitespace-nowrap"
+                            style={{ 
+                              backgroundColor: theme.status.interview + '20',
+                              color: theme.status.interview
+                            }}
+                          >
+                            {company.interviews} interviews
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -1162,41 +1229,49 @@ const Analytics = () => {
                 style={{ backgroundColor: theme.background.secondary }}
               >
                 <h4 className="text-lg font-semibold mb-4" style={{ color: theme.text.primary }}>Response Time</h4>
-                <div className="space-y-4">
-                  {[
-                    { 
-                      label: "Same Day",
-                      value: analyticsData.responseTimes.sameDay + "%",
-                      highlight: "↑ 5%"
-                    },
-                    { 
-                      label: "Within Week",
-                      value: analyticsData.responseTimes.withinWeek + "%",
-                      highlight: "↑ 10%"
-                    },
-                    { 
-                      label: "Over Week",
-                      value: analyticsData.responseTimes.overWeek + "%",
-                      highlight: "↓ 15%"
-                    }
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <span style={{ color: theme.text.secondary }}>{item.label}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="font-medium" style={{ color: theme.text.primary }}>{item.value}</span>
-                        <span 
-                          className="text-xs px-2 py-0.5 rounded-full"
-                          style={{ 
-                            backgroundColor: theme.primary[100],
-                            color: theme.primary[600]
-                          }}
-                        >
-                          {item.highlight}
-                        </span>
+                {analyticsData.responseTimes.total === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-sm" style={{ color: theme.text.tertiary }}>
+                      No response data available yet
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {[
+                      { 
+                        label: "Same Day",
+                        value: analyticsData.responseTimes.sameDay + "%",
+                        count: analyticsData.responseTimes.sameDayCount
+                      },
+                      { 
+                        label: "Within Week",
+                        value: analyticsData.responseTimes.withinWeek + "%",
+                        count: analyticsData.responseTimes.withinWeekCount
+                      },
+                      { 
+                        label: "Over Week",
+                        value: analyticsData.responseTimes.overWeek + "%",
+                        count: analyticsData.responseTimes.overWeekCount
+                      }
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <span style={{ color: theme.text.secondary }}>{item.label}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium" style={{ color: theme.text.primary }}>{item.value}</span>
+                          <span 
+                            className="text-xs px-2 py-0.5 rounded-full"
+                            style={{ 
+                              backgroundColor: theme.primary[100],
+                              color: theme.primary[600]
+                            }}
+                          >
+                            {item.count} response{item.count !== 1 ? 's' : ''}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1211,39 +1286,67 @@ const Analytics = () => {
               borderColor: theme.border.light
             }}
           >
-            <h3 className="text-xl font-bold mb-6" style={{ color: theme.text.primary }}>Response Time Analysis</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {[
-                { 
-                  label: "Same Day",
-                  value: analyticsData.responseTimes.sameDay + "%",
-                  icon: "⚡️",
-                  color: theme.status.offer
-                },
-                { 
-                  label: "Within Week",
-                  value: analyticsData.responseTimes.withinWeek + "%",
-                  icon: "📅",
-                  color: theme.primary[600]
-                },
-                { 
-                  label: "Over Week",
-                  value: analyticsData.responseTimes.overWeek + "%",
-                  icon: "⏳",
-                  color: theme.status.rejected
-                }
-              ].map((item, i) => (
-                <div 
-                  key={i}
-                  className="rounded-xl p-6 text-center"
-                  style={{ backgroundColor: theme.background.secondary }}
-                >
-                  <span className="text-4xl mb-4 block">{item.icon}</span>
-                  <div className="text-2xl font-bold mb-2" style={{ color: item.color }}>{item.value}</div>
-                  <div style={{ color: theme.text.secondary }}>{item.label}</div>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold" style={{ color: theme.text.primary }}>Response Time Analysis</h3>
+              {analyticsData.responseTimes.total > 0 && (
+                <div className="text-sm" style={{ color: theme.text.secondary }}>
+                  Based on {analyticsData.responseTimes.total} response{analyticsData.responseTimes.total > 1 ? 's' : ''}
                 </div>
-              ))}
+              )}
             </div>
+            
+            {analyticsData.responseTimes.total === 0 ? (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.background.secondary }}>
+                  <span className="text-2xl">📊</span>
+                </div>
+                <h4 className="text-lg font-semibold mb-2" style={{ color: theme.text.primary }}>
+                  No Response Data Yet
+                </h4>
+                <p className="text-sm" style={{ color: theme.text.secondary }}>
+                  Response time analytics will appear once you receive responses to your job applications.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {[
+                  { 
+                    label: "Same Day",
+                    value: analyticsData.responseTimes.sameDay + "%",
+                    count: analyticsData.responseTimes.sameDayCount,
+                    icon: "⚡️",
+                    color: theme.status.offer
+                  },
+                  { 
+                    label: "Within Week",
+                    value: analyticsData.responseTimes.withinWeek + "%",
+                    count: analyticsData.responseTimes.withinWeekCount,
+                    icon: "📅",
+                    color: theme.primary[600]
+                  },
+                  { 
+                    label: "Over Week",
+                    value: analyticsData.responseTimes.overWeek + "%",
+                    count: analyticsData.responseTimes.overWeekCount,
+                    icon: "⏳",
+                    color: theme.status.rejected
+                  }
+                ].map((item, i) => (
+                  <div 
+                    key={i}
+                    className="rounded-xl p-6 text-center"
+                    style={{ backgroundColor: theme.background.secondary }}
+                  >
+                    <span className="text-4xl mb-4 block">{item.icon}</span>
+                    <div className="text-2xl font-bold mb-1" style={{ color: item.color }}>{item.value}</div>
+                    <div className="text-xs mb-2" style={{ color: theme.text.tertiary }}>
+                      {item.count} response{item.count !== 1 ? 's' : ''}
+                    </div>
+                    <div style={{ color: theme.text.secondary }}>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

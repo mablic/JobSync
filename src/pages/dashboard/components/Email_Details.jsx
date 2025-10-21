@@ -213,8 +213,35 @@ const EmailDetails = ({ email, emails, stageName, jobId, isOpen, onClose, onSave
         {/* Email Content - Scrollable */}
         <div className="flex-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
           <div className="p-6 pb-32">
+            {/* No Emails Available */}
+            {emailList.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.background.secondary }}>
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: theme.text.tertiary }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold mb-3" style={{ color: theme.text.primary }}>
+                  No Email Information
+                </h3>
+                <p className="text-base mb-4 max-w-md" style={{ color: theme.text.secondary }}>
+                  There are no email details available for this stage. This might happen when emails haven't been processed yet or the stage doesn't have associated email communications.
+                </p>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-lg font-medium text-sm border transition-all hover:bg-opacity-10"
+                  style={{
+                    borderColor: theme.border.medium,
+                    color: theme.text.secondary
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            )}
+
             {/* Loading State */}
-            {isLoadingEmail && (
+            {emailList.length > 0 && isLoadingEmail && (
               <div className="flex items-center justify-center py-12">
                 <div 
                   className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
@@ -224,7 +251,7 @@ const EmailDetails = ({ email, emails, stageName, jobId, isOpen, onClose, onSave
             )}
 
             {/* Email Content */}
-            {!isLoadingEmail && fullEmailContent && (
+            {emailList.length > 0 && !isLoadingEmail && fullEmailContent && (
               <>
                 {/* Email Metadata */}
                 <div className="mb-6 p-4 rounded-lg border" style={{ 
@@ -270,12 +297,85 @@ const EmailDetails = ({ email, emails, stageName, jobId, isOpen, onClose, onSave
               </>
             )}
 
-            {/* Error State */}
-            {!isLoadingEmail && !fullEmailContent && (
-              <div className="text-center py-12">
-                <p style={{ color: theme.text.secondary }}>
-                  Unable to load email content
+            {/* No Email Content State */}
+            {emailList.length > 0 && !isLoadingEmail && !fullEmailContent && (
+              <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.background.secondary }}>
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: theme.text.tertiary }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold mb-3" style={{ color: theme.text.primary }}>
+                  Email Content Unavailable
+                </h3>
+                <p className="text-base mb-4 max-w-md" style={{ color: theme.text.secondary }}>
+                  We couldn't load the full email content for this message. This might be due to the email being processed or temporarily unavailable.
                 </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 rounded-lg font-medium text-sm transition-all hover:opacity-80"
+                    style={{
+                      backgroundColor: theme.primary[600],
+                      color: '#ffffff'
+                    }}
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 rounded-lg font-medium text-sm border transition-all hover:bg-opacity-10"
+                    style={{
+                      borderColor: theme.border.medium,
+                      color: theme.text.secondary
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+                
+                {/* Show basic email info if available from currentEmail */}
+                {currentEmail && (
+                  <div className="mt-8 w-full max-w-md p-4 rounded-lg border" style={{ 
+                    backgroundColor: theme.background.secondary,
+                    borderColor: theme.border.light 
+                  }}>
+                    <h4 className="text-sm font-semibold mb-3" style={{ color: theme.text.primary }}>
+                      Available Information
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      {currentEmail.subject && (
+                        <div>
+                          <span className="font-medium" style={{ color: theme.text.secondary }}>Subject: </span>
+                          <span style={{ color: theme.text.primary }}>{currentEmail.subject}</span>
+                        </div>
+                      )}
+                      {currentEmail.from && (
+                        <div>
+                          <span className="font-medium" style={{ color: theme.text.secondary }}>From: </span>
+                          <span style={{ color: theme.text.primary }}>{currentEmail.from}</span>
+                        </div>
+                      )}
+                      {currentEmail.date && (
+                        <div>
+                          <span className="font-medium" style={{ color: theme.text.secondary }}>Date: </span>
+                          <span style={{ color: theme.text.primary }}>
+                            {currentEmail.date instanceof Date 
+                              ? currentEmail.date.toLocaleDateString('en-US', { 
+                                  year: 'numeric', 
+                                  month: 'short', 
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
+                              : currentEmail.date
+                            }
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -312,11 +412,12 @@ const EmailDetails = ({ email, emails, stageName, jobId, isOpen, onClose, onSave
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 border-t" style={{ 
-          backgroundColor: theme.background.primary,
-          borderColor: theme.border.light 
-        }}>
+        {/* Action Buttons - Only show if there are emails */}
+        {emailList.length > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 p-6 border-t" style={{ 
+            backgroundColor: theme.background.primary,
+            borderColor: theme.border.light 
+          }}>
           {/* Reclassify Button */}
           {jobId && currentEmail?.id && !isSaving && (
             <button
@@ -368,7 +469,8 @@ const EmailDetails = ({ email, emails, stageName, jobId, isOpen, onClose, onSave
               Close
             </button>
           </div>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Type Select Modal */}

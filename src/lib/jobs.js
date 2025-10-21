@@ -198,7 +198,7 @@ const transformJobDetailsToStages = (details, currentStage = 'applied') => {
         rejected: isRejected,
         current: isCurrent,
         date: stageData[0]?.date || '',
-        notes: stageData[0]?.body || '',
+        notes: '', // Don't show email content in notes - keep it clean
         emails: stageData
       }
     }
@@ -282,10 +282,28 @@ const formatRelativeTime = (timestamp) => {
   try {
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
     const now = new Date()
-    const diffMs = now - date
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
     
-    if (diffDays === 0) return 'Today'
+    // Normalize dates to remove time-of-day precision issues
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    
+    const diffMs = today - targetDate
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24))
+    
+    // Handle same day or very small differences (within same day)
+    if (diffDays === 0 || Math.abs(diffMs) < 24 * 60 * 60 * 1000) {
+      return 'Today'
+    }
+    
+    // Handle future dates (shouldn't happen but just in case)
+    if (diffDays < 0) {
+      const absDays = Math.abs(diffDays)
+      if (absDays === 1) return 'Tomorrow'
+      if (absDays < 7) return `In ${absDays} days`
+      return 'Future date'
+    }
+    
+    // Handle past dates
     if (diffDays === 1) return 'Yesterday'
     if (diffDays < 7) return `${diffDays} days ago`
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
