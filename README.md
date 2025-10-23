@@ -11,6 +11,7 @@ A modern, AI-powered job application tracking platform that automatically organi
 - **Intelligent Stage Detection**: AI determines whether an email is an application confirmation, screening update, interview invitation, offer, or rejection
 - **Dynamic Application Timeline**: Visual timeline showing your progress through each stage with email history
 - **Real-time Dashboard**: Track all applications with filterable views (Active, Today's Updates, Applied, Screening, Interviews, Offers, Rejected)
+- **Advanced Analytics**: Comprehensive analytics dashboard with activity trends, stage distribution, application funnel, and response time analysis
 
 ### Management Features
 
@@ -19,6 +20,7 @@ A modern, AI-powered job application tracking platform that automatically organi
 - **Email Stage Management**: Move individual emails between stages and automatically sync with the job's current stage
 - **Duplicate Detection**: Automatically identifies and merges duplicate job applications
 - **Delete Applications**: Remove unwanted applications and all associated data
+- **Profile Management**: Edit your full name and manage account settings with a modern modal interface
 
 ### User Experience
 
@@ -28,6 +30,8 @@ A modern, AI-powered job application tracking platform that automatically organi
 - **Fully Responsive**: Beautiful UI that works seamlessly on desktop, tablet, and mobile
 - **Instant Updates**: Optimized UI updates without full page reloads
 - **Analytics Integration**: Track user engagement and page views with Google Analytics
+- **Interactive Charts**: Hover effects and tooltips on all analytics charts for better user experience
+- **Modal Interfaces**: Modern modal dialogs for editing with blur backgrounds and smooth animations
 
 ## 🛠️ Tech Stack
 
@@ -167,7 +171,9 @@ JobSync.fyi/
 │   │   │   ├── Sign_In.jsx
 │   │   │   ├── Sign_Up.jsx
 │   │   │   ├── Forgot_PW.jsx
-│   │   │   └── Profile.jsx
+│   │   │   ├── Profile.jsx
+│   │   │   └── components/
+│   │   │       └── Edit_Username.jsx  # Modal for editing user's full name
 │   │   ├── Home.jsx     # Landing page
 │   │   ├── About.jsx    # About page
 │   │   ├── Terms.jsx    # Terms of service
@@ -288,12 +294,13 @@ firebase deploy --only firestore:indexes
 ## 📱 Available Routes
 
 - `/` - Home page with feature overview
-- `/about` - About us page
+- `/about` - About us page with analytics highlight for authenticated users
 - `/Sign_In` - User sign in (email/password or Google)
 - `/Sign_Up` - User registration
 - `/Forgot_PW` - Password recovery
-- `/profile` - User profile and settings
+- `/profile` - User profile and settings with modern modal editing
 - `/dashboard` - Job application dashboard (protected)
+- `/Analytics` - Advanced analytics dashboard with interactive charts (protected)
 - `/terms` - Terms of service
 - `/privacy` - Privacy policy
 

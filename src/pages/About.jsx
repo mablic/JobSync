@@ -1,9 +1,11 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 import { useTheme } from '../App'
+import { useAuth } from '../contexts/GlobalProvider'
 
 const About = () => {
   const { theme } = useTheme()
+  const { isAuthenticated } = useAuth()
   const techStack = [
     {
       category: 'Email Processing',
@@ -50,6 +52,66 @@ const About = () => {
           </p>
         </div>
       </section>
+
+      {/* Analytics Highlight Section - Only for authenticated users */}
+      {isAuthenticated && (
+        <section className="py-12" style={{ backgroundColor: theme.background.primary }}>
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div 
+              className="rounded-2xl p-8 shadow-lg border"
+              style={{ 
+                backgroundColor: theme.background.secondary,
+                borderColor: theme.border.light
+              }}
+            >
+              <div className="flex items-center gap-4 mb-6">
+                <div 
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                  style={{ backgroundColor: theme.primary[100] }}
+                >
+                  <span className="text-3xl">📊</span>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold" style={{ color: theme.text.primary }}>
+                    View Your Analytics
+                  </h2>
+                  <p className="text-base mt-1" style={{ color: theme.text.tertiary }}>
+                    Track your job application progress
+                  </p>
+                </div>
+              </div>
+              
+              <p className="text-lg mb-6" style={{ color: theme.text.secondary }}>
+                Get detailed insights into your job application journey with our comprehensive analytics dashboard. 
+                Track your application trends, stage distribution, and response times.
+              </p>
+              
+              <div className="flex gap-4">
+                <Link
+                  to="/Analytics"
+                  className="px-6 py-3 text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md"
+                  style={{ 
+                    backgroundColor: theme.primary[600],
+                    color: theme.text.inverse
+                  }}
+                >
+                  View Analytics Dashboard
+                </Link>
+                <Link
+                  to="/Dashboard"
+                  className="px-6 py-3 text-sm font-medium rounded-lg border-2 transition-all duration-200"
+                  style={{ 
+                    borderColor: theme.border.medium,
+                    color: theme.text.secondary
+                  }}
+                >
+                  Go to Dashboard
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Mission Section */}
       <section className="py-16" style={{ backgroundColor: theme.background.primary }}>

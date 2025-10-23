@@ -52,6 +52,14 @@ const Analytics = () => {
     return rawData[field].toDate ? rawData[field].toDate() : new Date(rawData[field])
   }
 
+  // Helper function to get local date string (YYYY-MM-DD) without timezone issues
+  const getLocalDateString = (date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
   // Data processing functions
   const processAnalyticsData = () => {
     if (allRoles.length === 0) return {}
@@ -163,7 +171,7 @@ const Analytics = () => {
     const dailyData = allRoles.reduce((acc, role) => {
       const date = getDateFromRaw(role.rawData)
       if (date) {
-        const dateKey = date.toISOString().split('T')[0] // YYYY-MM-DD format
+        const dateKey = getLocalDateString(date) // YYYY-MM-DD format
         if (!acc[dateKey]) {
           acc[dateKey] = {
             applications: 0,
@@ -245,11 +253,16 @@ const Analytics = () => {
       rejections: company.roles.filter(role => role.currentStage === 'rejected').length
     })).sort((a, b) => b.applications - a.applications).slice(0, 10)
 
-    // Application funnel
+    // Application funnel with detailed interview stages
     const funnelData = {
       applied: stageDistribution.applied || 0,
       screening: stageDistribution.screening || 0,
-      interview: (stageDistribution.interview1 || 0) + (stageDistribution.interview2 || 0) + (stageDistribution.interview3 || 0) + (stageDistribution.interview4 || 0) + (stageDistribution.interview5 || 0) + (stageDistribution.interview6 || 0),
+      interview1: stageDistribution.interview1 || 0,
+      interview2: stageDistribution.interview2 || 0,
+      interview3: stageDistribution.interview3 || 0,
+      interview4: stageDistribution.interview4 || 0,
+      interview5: stageDistribution.interview5 || 0,
+      interview6: stageDistribution.interview6 || 0,
       offer: stageDistribution.offer || 0,
       rejected: stageDistribution.rejected || 0
     }
@@ -277,17 +290,22 @@ const Analytics = () => {
 
   // Application Funnel Component
   const ApplicationFunnel = ({ data }) => {
+    // Calculate total interviews across all rounds
+    const totalInterviews = (data.interview1 || 0) + (data.interview2 || 0) + (data.interview3 || 0) + 
+                           (data.interview4 || 0) + (data.interview5 || 0) + (data.interview6 || 0)
+    
     const stages = [
-      { stage: "Applied", count: data.applied || 0, color: theme.primary[600] },
-      { stage: "Screening", count: data.screening || 0, color: theme.secondary[600] },
-      { stage: "Interview", count: data.interview || 0, color: theme.status.interview },
-      { stage: "Offer", count: data.offer || 0, color: theme.status.offer }
-    ]
+      { stage: "Applied", count: data.applied || 0, color: theme?.primary?.[600] || '#3b82f6' },
+      { stage: "Screening", count: data.screening || 0, color: theme?.secondary?.[600] || '#8b5cf6' },
+      { stage: "Interview", count: totalInterviews, color: theme?.status?.interview || '#f59e0b' },
+      { stage: "Offer", count: data.offer || 0, color: theme?.status?.offer || '#10b981' },
+      { stage: "Rejected", count: data.rejected || 0, color: theme?.status?.rejected || '#ef4444' }
+    ] // Show ALL stages, even with 0 count
 
     const appliedCount = stages[0].count || 1 // Use first stage (Applied) as baseline
     
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         {stages.map((stage, i) => {
           // For funnel visualization, show conversion rate from applied stage
           // Cap at 100% to prevent display issues
@@ -303,22 +321,60 @@ const Analytics = () => {
           const displayPercent = conversionRate.toFixed(1)
           
           return (
-            <div key={stage.stage}>
+            <div key={stage.stage} className="group hover:bg-opacity-50 p-2 rounded-lg transition-all duration-300 cursor-pointer relative">
+              {/* Hover Tooltip */}
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                <div 
+                  className="px-4 py-3 rounded-lg shadow-xl text-sm whitespace-nowrap border-2"
+                  style={{ 
+                    backgroundColor: theme?.background?.primary || '#ffffff',
+                    borderColor: stage.color,
+                    color: theme?.text?.primary || '#0f172a'
+                  }}
+                >
+                  <div className="font-semibold mb-1">{stage.stage}</div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-center">
+                      <div className="text-lg font-bold" style={{ color: stage.color }}>{stage.count}</div>
+                      <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>
+                        {stage.stage === 'Applied' ? 'applications' : 
+                         stage.stage === 'Screening' ? 'in screening' :
+                         stage.stage === 'Interview' ? 'interviewed' :
+                         stage.stage === 'Offer' ? 'offers' : 'rejected'}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-bold" style={{ color: stage.color }}>
+                        {i === 0 ? '100.0' : displayPercent}%
+                      </div>
+                      <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>
+                        conversion rate
+                      </div>
+                    </div>
+                  </div>
+                  {i > 0 && (
+                    <div className="text-xs mt-2 pt-2 border-t" style={{ borderColor: theme?.border?.light || '#e2e8f0' }}>
+                      {appliedCount > 0 ? `${((stage.count / appliedCount) * 100).toFixed(1)}%` : '0.0%'} of total applications
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="flex items-center justify-between mb-1">
-                <span style={{ color: theme.text.primary }}>{stage.stage}</span>
-                <div className="flex items-center gap-3">
-                  <span style={{ color: theme.text.secondary }}>{stage.count}</span>
+                <span className="text-sm font-medium group-hover:font-semibold transition-all duration-200" style={{ color: theme?.text?.primary || '#0f172a' }}>{stage.stage}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm group-hover:text-base transition-all duration-200" style={{ color: theme?.text?.secondary || '#475569' }}>{stage.count}</span>
                   <span 
-                    className="text-xs px-2 py-0.5 rounded-full"
+                    className="text-xs px-2 py-0.5 rounded-full group-hover:scale-110 transition-all duration-200"
                     style={{ backgroundColor: stage.color + '20', color: stage.color }}
                   >
                     {i === 0 ? '100.0' : displayPercent}%
                   </span>
                 </div>
               </div>
-              <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: theme.background.secondary }}>
+              <div className="h-1.5 rounded-full overflow-hidden group-hover:h-2 transition-all duration-300" style={{ backgroundColor: theme?.background?.secondary || '#f8fafc' }}>
                 <div 
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full rounded-full transition-all duration-500 group-hover:shadow-sm"
                   style={{ 
                     width: `${i === 0 ? 100 : Math.min(conversionRate, 100)}%`,
                     backgroundColor: stage.color
@@ -409,7 +465,7 @@ const Analytics = () => {
     )
   }
 
-  // Redesigned Line Chart Component with Better UX
+  // Combined Chart Component with Daily Bars and Average Line
   const ActivityLineChart = ({ title }) => {
     // Collect all activity dates
     const allActivityDates = {}
@@ -417,7 +473,7 @@ const Analytics = () => {
     allRoles.forEach(role => {
       const applicationDate = getDateFromRaw(role.rawData, 'Applied_Date')
       if (applicationDate) {
-        const dateKey = applicationDate.toISOString().split('T')[0]
+        const dateKey = getLocalDateString(applicationDate)
         if (!allActivityDates[dateKey]) {
           allActivityDates[dateKey] = { count: 0 }
         }
@@ -439,7 +495,7 @@ const Analytics = () => {
             }
             
             if (emailDate && !isNaN(emailDate.getTime())) {
-              const dateKey = emailDate.toISOString().split('T')[0]
+              const dateKey = getLocalDateString(emailDate)
               if (!allActivityDates[dateKey]) {
                 allActivityDates[dateKey] = { count: 0 }
               }
@@ -467,12 +523,14 @@ const Analytics = () => {
     
     const firstDate = new Date(allDates[0])
     const today = new Date()
+    today.setHours(0, 0, 0, 0) // Set to start of day for accurate comparison
     
     const chartData = []
     const currentDate = new Date(firstDate)
+    currentDate.setHours(0, 0, 0, 0) // Set to start of day
     
     while (currentDate <= today) {
-      const dateKey = currentDate.toISOString().split('T')[0]
+      const dateKey = getLocalDateString(currentDate)
       chartData.push({
         date: new Date(currentDate),
         dateKey,
@@ -481,12 +539,23 @@ const Analytics = () => {
       currentDate.setDate(currentDate.getDate() + 1)
     }
     
-    // Limit to last 60 days for better visualization
-    const displayData = chartData.slice(-60)
+    // Limit to last 30 days for better visualization
+    const displayData = chartData.slice(-30)
 
     const maxCount = Math.max(...displayData.map(d => d.count), 1)
     const chartHeight = 300
     const chartWidth = 100 // percentage-based
+
+    // Calculate running average for trend line
+    const runningAverages = displayData.map((_, index) => {
+      const dataUpToNow = displayData.slice(0, index + 1)
+      const total = dataUpToNow.reduce((sum, d) => sum + d.count, 0)
+      return total / (index + 1)
+    })
+    
+    // Overall average for display
+    const totalActivities = displayData.reduce((sum, d) => sum + d.count, 0)
+    const average = totalActivities / displayData.length
 
     return (
       <div className="space-y-4">
@@ -494,14 +563,22 @@ const Analytics = () => {
           <div>
             <h3 className="text-xl font-bold" style={{ color: theme.text.primary }}>{title}</h3>
             <p className="text-sm mt-1" style={{ color: theme.text.secondary }}>
-              Last {displayData.length} days of activity
+              Last 30 days of activity • Daily bars with running average trend
             </p>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full" style={{ backgroundColor: '#3b82f6' + '20' }}>
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }}></div>
-            <span className="text-sm font-medium" style={{ color: '#3b82f6' }}>
-              {displayData.reduce((sum, d) => sum + d.count, 0)} activities
-            </span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full" style={{ backgroundColor: '#3b82f6' + '20' }}>
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }}></div>
+              <span className="text-sm font-medium" style={{ color: '#3b82f6' }}>
+                {displayData.reduce((sum, d) => sum + d.count, 0)} activities
+              </span>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full" style={{ backgroundColor: '#f97316' + '20' }}>
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f97316' }}></div>
+              <span className="text-sm font-medium" style={{ color: '#f97316' }}>
+                Avg: {average.toFixed(1)}/day
+              </span>
+            </div>
           </div>
         </div>
 
@@ -513,41 +590,93 @@ const Analytics = () => {
             ))}
           </div>
 
-          {/* Chart area */}
+          {/* Combined Chart: Bars + Average Line */}
           <div className="absolute left-12 right-0 top-0 bottom-8">
             <div className="relative w-full h-full">
-              <div className="absolute inset-0 flex items-end gap-1">
+              {/* SVG for running average line - ON TOP */}
+              <svg 
+                className="absolute inset-0 w-full h-full pointer-events-none z-10" 
+                viewBox="0 0 100 100" 
+                preserveAspectRatio="none"
+              >
+                {/* 添加渐变和阴影效果 */}
+                <defs>
+                  <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#f97316" stopOpacity="0.8" />
+                    <stop offset="100%" stopColor="#ea580c" stopOpacity="0.9" />
+                  </linearGradient>
+                  
+                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+                    <feMerge> 
+                      <feMergeNode in="blur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+
+                {/* Consistent width line with gradient and glow */}
+                <path
+                  d={runningAverages.map((avg, index) => {
+                    const x = (index / Math.max(1, runningAverages.length - 1)) * 100
+                    const y = 100 - (maxCount > 0 ? (avg / maxCount) * 100 : 0)
+                    return `${index === 0 ? 'M' : 'L'} ${x},${y}`
+                  }).join(' ')}
+                  fill="none"
+                  stroke="url(#lineGradient)"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="1"
+                  vectorEffect="non-scaling-stroke"
+                  filter="url(#glow)"
+                />
+                
+              </svg>
+              
+              {/* Daily bars - BEHIND the line */}
+              <div className="absolute inset-0 flex items-end gap-0.5 z-0">
                 {displayData.map((data, index) => {
                   const heightPercent = maxCount > 0 ? (data.count / maxCount) * 100 : 0
                   const hasData = data.count > 0
-                  const heightPx = hasData ? Math.max((heightPercent / 100) * (chartHeight - 32), 4) : 0
+                  const heightPx = hasData ? Math.max((heightPercent / 100) * (chartHeight - 32), 2) : 0
+                  
+                  // Determine bar color based on running average
+                  const currentRunningAvg = runningAverages[index]
+                  const isAboveAverage = data.count > currentRunningAvg
+                  const barColor = isAboveAverage ? '#3b82f6' : '#6b7280'
                   
                   return (
                     <div key={data.dateKey} className="flex-1 group relative" style={{ height: '100%' }}>
                       {/* Tooltip */}
-                      {hasData && (
-                        <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                          <div 
-                            className="px-3 py-2 rounded-lg shadow-xl text-xs whitespace-nowrap"
-                            style={{ 
-                              backgroundColor: theme.background.primary,
-                              border: `2px solid #3b82f6`,
-                              color: theme.text.primary
-                            }}
-                          >
-                            <div className="font-semibold">{data.date.toLocaleDateString('en', { month: 'short', day: 'numeric' })}</div>
-                            <div style={{ color: '#3b82f6' }}>{data.count} activities</div>
+                      <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                        <div 
+                          className="px-4 py-3 rounded-lg shadow-xl text-xs whitespace-nowrap border-2"
+                          style={{ 
+                            backgroundColor: theme?.background?.primary || '#ffffff',
+                            borderColor: barColor,
+                            color: theme?.text?.primary || '#0f172a'
+                          }}
+                        >
+                          <div className="font-semibold">{data.date.toLocaleDateString('en', { month: 'short', day: 'numeric' })}</div>
+                          <div style={{ color: barColor }}>{data.count} activities</div>
+                          <div className="text-xs mt-1 flex items-center gap-1" style={{ color: theme?.text?.secondary || '#475569' }}>
+                            <div 
+                              className="w-2 h-2 rounded-full" 
+                              style={{ backgroundColor: isAboveAverage ? '#10b981' : '#ef4444' }}
+                            />
+                            {isAboveAverage ? 'Above running avg' : 'Below running avg'} ({currentRunningAvg.toFixed(1)})
                           </div>
                         </div>
-                      )}
+                      </div>
                       
                       {/* Bar */}
                       {hasData && (
                         <div 
-                          className="absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-300 group-hover:opacity-80"
+                          className="absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-300 group-hover:opacity-90 group-hover:shadow-lg"
                           style={{ 
                             height: `${heightPx}px`,
-                            backgroundColor: '#3b82f6'
+                            backgroundColor: barColor
                           }}
                         />
                       )}
@@ -556,13 +685,13 @@ const Analytics = () => {
                 })}
               </div>
             </div>
+          </div>
 
-            {/* Grid lines */}
-            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-              {[0, 1, 2, 3, 4].map((_, idx) => (
-                <div key={idx} className="w-full border-t" style={{ borderColor: theme.border.light, opacity: 0.3 }} />
-              ))}
-            </div>
+          {/* Grid lines */}
+          <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+            {[0, 1, 2, 3, 4].map((_, idx) => (
+              <div key={idx} className="w-full border-t" style={{ borderColor: theme.border.light, opacity: 0.3 }} />
+            ))}
           </div>
 
           {/* X-axis labels */}
@@ -727,7 +856,7 @@ const Analytics = () => {
     allRoles.forEach(role => {
       const applicationDate = getDateFromRaw(role.rawData, 'Applied_Date')
       if (applicationDate) {
-        const dateKey = applicationDate.toISOString().split('T')[0]
+        const dateKey = getLocalDateString(applicationDate)
         if (!daysData[dateKey]) {
           daysData[dateKey] = 0
         }
@@ -749,7 +878,7 @@ const Analytics = () => {
             }
             
             if (emailDate && !isNaN(emailDate.getTime())) {
-              const dateKey = emailDate.toISOString().split('T')[0]
+              const dateKey = getLocalDateString(emailDate)
               if (!daysData[dateKey]) {
                 daysData[dateKey] = 0
               }
@@ -769,7 +898,7 @@ const Analytics = () => {
       const weekDays = []
       for (let day = 0; day < 7; day++) {
         const date = new Date(today.getTime() - (week * 7 + (6 - day)) * 24 * 60 * 60 * 1000)
-        const dateKey = date.toISOString().split('T')[0]
+        const dateKey = getLocalDateString(date)
         const count = daysData[dateKey] || 0
         
         weekDays.push({
@@ -783,16 +912,16 @@ const Analytics = () => {
     const totalActivity = Object.values(daysData).reduce((sum, count) => sum + count, 0)
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-xl font-bold" style={{ color: theme.text.primary }}>{title}</h3>
-            <p className="text-sm mt-1" style={{ color: theme.text.secondary }}>
+            <h3 className="text-lg font-bold" style={{ color: theme.text.primary }}>{title}</h3>
+            <p className="text-xs mt-1" style={{ color: theme.text.secondary }}>
               Last 12 weeks
             </p>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold" style={{ color: theme.text.primary }}>{totalActivity}</div>
+            <div className="text-xl font-bold" style={{ color: theme.text.primary }}>{totalActivity}</div>
             <div className="text-xs" style={{ color: theme.text.secondary }}>total activities</div>
           </div>
         </div>
@@ -807,21 +936,21 @@ const Analytics = () => {
                 return (
                   <div
                     key={`${weekIndex}-${dayIndex}`}
-                    className="w-full aspect-square rounded-sm border group relative cursor-pointer transition-transform hover:scale-125"
+                    className="w-full aspect-square rounded-sm border group relative cursor-pointer transition-all duration-300 hover:scale-125 hover:shadow-lg hover:z-10"
                     style={{
-                      backgroundColor: hasActivity ? '#3b82f6' : theme.background.secondary,
+                      backgroundColor: hasActivity ? '#3b82f6' : theme?.background?.secondary || '#f8fafc',
                       opacity: hasActivity ? (intensity * 0.6 + 0.4) : 0.3,
-                      borderColor: theme.border.light
+                      borderColor: theme?.border?.light || '#e2e8f0'
                     }}
                   >
                     {/* Tooltip */}
                     <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                       <div 
-                        className="px-2 py-1 rounded shadow-xl text-xs whitespace-nowrap"
+                        className="px-3 py-2 rounded-lg shadow-xl text-xs whitespace-nowrap border-2"
                         style={{ 
-                          backgroundColor: theme.background.primary,
-                          border: `1px solid ${theme.border.medium}`,
-                          color: theme.text.primary
+                          backgroundColor: theme?.background?.primary || '#ffffff',
+                          borderColor: hasActivity ? '#3b82f6' : theme?.border?.medium || '#cbd5e1',
+                          color: theme?.text?.primary || '#0f172a'
                         }}
                       >
                         <div className="font-semibold">{day.date.toLocaleDateString('en', { month: 'short', day: 'numeric' })}</div>
@@ -1000,131 +1129,206 @@ const Analytics = () => {
         {/* Activity Trends - Full Width */}
         <div className="mb-8">
           <div 
-            className="rounded-2xl p-6 shadow-lg border"
+            className="rounded-2xl p-6 shadow-lg border hover:shadow-xl transition-all duration-300"
             style={{ 
-              backgroundColor: theme.background.primary,
-              borderColor: theme.border.light
+              backgroundColor: theme?.background?.primary || '#ffffff',
+              borderColor: theme?.border?.light || '#e2e8f0'
             }}
           >
             <ActivityLineChart title="Activity Trends" />
           </div>
         </div>
 
-        {/* Stage Distribution, Funnel and Heatmap */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+        {/* Stage Distribution and Application Funnel */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Stage Distribution Pie Chart */}
           <div 
             className="rounded-2xl p-6 shadow-lg border"
             style={{ 
-              backgroundColor: theme.background.primary,
-              borderColor: theme.border.light
+              backgroundColor: theme?.background?.primary || '#ffffff',
+              borderColor: theme?.border?.light || '#e2e8f0'
             }}
           >
-            <h3 className="text-xl font-bold mb-6" style={{ color: theme.text.primary }}>Stage Distribution</h3>
-            <div className="relative">
-              <svg width="100%" height="240" viewBox="0 0 240 240">
+            <h3 className="text-xl font-bold mb-6" style={{ color: theme?.text?.primary || '#0f172a' }}>Stage Distribution</h3>
+            <div className="flex flex-col items-center gap-8 min-h-[500px]">
+              {/* Large pie chart centered */}
+              <div className="flex-shrink-0 relative">
+                {/* Hover Tooltip */}
+                <div id="pie-chart-tooltip" className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-full mb-2 opacity-0 transition-opacity pointer-events-none z-10">
+                  <div 
+                    className="px-4 py-3 rounded-lg shadow-xl text-sm whitespace-nowrap border-2"
+                    style={{ 
+                      backgroundColor: theme?.background?.primary || '#ffffff',
+                      borderColor: '#3b82f6',
+                      color: theme?.text?.primary || '#0f172a'
+                    }}
+                  >
+                    <div className="font-semibold mb-1" id="tooltip-stage">Stage</div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-center">
+                        <div className="text-lg font-bold" id="tooltip-count" style={{ color: '#3b82f6' }}>0</div>
+                        <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>applications</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold" id="tooltip-percentage" style={{ color: '#3b82f6' }}>0.0%</div>
+                        <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>of total</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <svg width="320" height="320" viewBox="0 0 320 320">
+                  {(() => {
+                    const data = [
+                      { stage: "Applied", count: analyticsData.funnelData.applied || 0, color: "#3b82f6" },
+                      { stage: "Screening", count: analyticsData.funnelData.screening || 0, color: "#8b5cf6" },
+                      { stage: "Interview", count: analyticsData.funnelData.interview || 0, color: "#f59e0b" },
+                      { stage: "Offer", count: analyticsData.funnelData.offer || 0, color: "#10b981" },
+                      { stage: "Rejected", count: analyticsData.funnelData.rejected || 0, color: "#ef4444" }
+                    ].filter(item => item.count > 0)
+
+                    const total = data.reduce((sum, item) => sum + item.count, 0)
+                    const centerX = 160
+                    const centerY = 160
+                    const radius = 120
+
+                    let startAngle = -90
+                    return data.map((item, i) => {
+                      const percentage = (item.count / total) * 100
+                      const angle = (percentage / 100) * 360
+                      const endAngle = startAngle + angle
+
+                      const startRad = (startAngle * Math.PI) / 180
+                      const endRad = (endAngle * Math.PI) / 180
+                      const x1 = centerX + radius * Math.cos(startRad)
+                      const y1 = centerY + radius * Math.sin(startRad)
+                      const x2 = centerX + radius * Math.cos(endRad)
+                      const y2 = centerY + radius * Math.sin(endRad)
+                      const largeArcFlag = angle > 180 ? 1 : 0
+
+                      const path = [
+                        'M', centerX, centerY,
+                        'L', x1, y1,
+                        'A', radius, radius, 0, largeArcFlag, 1, x2, y2,
+                        'Z'
+                      ].join(' ')
+
+                      startAngle += angle
+
+                      return (
+                        <g key={item.stage} className="group">
+                          <path
+                            d={path}
+                            fill={item.color}
+                            stroke={theme?.background?.primary || '#ffffff'}
+                            strokeWidth="2"
+                            className="transition-all duration-300 cursor-pointer hover:opacity-80 hover:scale-105"
+                            style={{ transformOrigin: '160px 160px' }}
+                            onMouseEnter={(e) => {
+                              const tooltip = document.getElementById('pie-chart-tooltip')
+                              const stageEl = document.getElementById('tooltip-stage')
+                              const countEl = document.getElementById('tooltip-count')
+                              const percentageEl = document.getElementById('tooltip-percentage')
+                              
+                              if (tooltip && stageEl && countEl && percentageEl) {
+                                stageEl.textContent = item.stage
+                                countEl.textContent = item.count
+                                percentageEl.textContent = percentage.toFixed(1) + '%'
+                                countEl.style.color = item.color
+                                percentageEl.style.color = item.color
+                                tooltip.style.borderColor = item.color
+                                tooltip.style.opacity = '1'
+                              }
+                            }}
+                            onMouseLeave={() => {
+                              const tooltip = document.getElementById('pie-chart-tooltip')
+                              if (tooltip) {
+                                tooltip.style.opacity = '0'
+                              }
+                            }}
+                          />
+                          {/* Enhanced Hover tooltip */}
+                          <title>{item.stage}: {item.count} applications ({percentage.toFixed(1)}%)</title>
+                        </g>
+                      )
+                    })
+                  })()}
+                  {/* Center circle */}
+                  <circle
+                    cx="160"
+                    cy="160"
+                    r="50"
+                    fill={theme?.background?.primary || '#ffffff'}
+                    stroke={theme?.border?.light || '#e2e8f0'}
+                    strokeWidth="3"
+                  />
+                  <text
+                    x="160"
+                    y="150"
+                    textAnchor="middle"
+                    fontSize="36"
+                    fontWeight="bold"
+                    fill={theme?.text?.primary || '#0f172a'}
+                  >
+                    {allRoles.length}
+                  </text>
+                  <text
+                    x="160"
+                    y="175"
+                    textAnchor="middle"
+                    fontSize="16"
+                    fill={theme?.text?.secondary || '#475569'}
+                  >
+                    Total
+                  </text>
+                </svg>
+              </div>
+
+              {/* Smart legend below the chart */}
+              <div className="w-full max-w-4xl">
+                <div className="flex flex-wrap justify-center gap-4">
                 {(() => {
                   const data = [
-                    { stage: "Applied", count: analyticsData.funnelData.applied || 0, color: theme.primary[600] },
-                    { stage: "Screening", count: analyticsData.funnelData.screening || 0, color: theme.secondary[600] },
-                    { stage: "Interview", count: analyticsData.funnelData.interview || 0, color: theme.status.interview },
-                    { stage: "Offer", count: analyticsData.funnelData.offer || 0, color: theme.status.offer },
-                    { stage: "Rejected", count: analyticsData.funnelData.rejected || 0, color: theme.status.rejected }
+                    { stage: "Applied", count: analyticsData.funnelData.applied || 0, color: "#3b82f6" },
+                    { stage: "Screening", count: analyticsData.funnelData.screening || 0, color: "#8b5cf6" },
+                    { stage: "Interview", count: analyticsData.funnelData.interview || 0, color: "#f59e0b" },
+                    { stage: "Offer", count: analyticsData.funnelData.offer || 0, color: "#10b981" },
+                    { stage: "Rejected", count: analyticsData.funnelData.rejected || 0, color: "#ef4444" }
                   ].filter(item => item.count > 0)
 
                   const total = data.reduce((sum, item) => sum + item.count, 0)
-                  const centerX = 120
-                  const centerY = 120
-                  const radius = 80
-
-                  let startAngle = -90 // Start from top
+                  
                   return data.map((item, i) => {
                     const percentage = (item.count / total) * 100
-                    const angle = (percentage / 100) * 360
-                    const endAngle = startAngle + angle
-
-                    // Calculate path
-                    const startRad = (startAngle * Math.PI) / 180
-                    const endRad = (endAngle * Math.PI) / 180
-                    const x1 = centerX + radius * Math.cos(startRad)
-                    const y1 = centerY + radius * Math.sin(startRad)
-                    const x2 = centerX + radius * Math.cos(endRad)
-                    const y2 = centerY + radius * Math.sin(endRad)
-                    const largeArcFlag = angle > 180 ? 1 : 0
-
-                    // Calculate label position
-                    const labelRad = (startAngle + angle / 2) * Math.PI / 180
-                    const labelX = centerX + (radius + 30) * Math.cos(labelRad)
-                    const labelY = centerY + (radius + 30) * Math.sin(labelRad)
-
-                    const path = [
-                      'M', centerX, centerY,
-                      'L', x1, y1,
-                      'A', radius, radius, 0, largeArcFlag, 1, x2, y2,
-                      'Z'
-                    ].join(' ')
-
-                    startAngle += angle
-
                     return (
-                      <g key={item.stage}>
-                        <path
-                          d={path}
-                          fill={item.color}
-                          stroke={theme.background.primary}
-                          strokeWidth="2"
-                        />
-                        <line
-                          x1={x2}
-                          y1={y2}
-                          x2={labelX}
-                          y2={labelY}
-                          stroke={item.color}
-                          strokeWidth="2"
-                          opacity="0.5"
-                        />
-                        <text
-                          x={labelX + (labelX > centerX ? 5 : -5)}
-                          y={labelY}
-                          textAnchor={labelX > centerX ? "start" : "end"}
-                          alignmentBaseline="middle"
-                          fontSize="12"
-                          fill={theme.text.primary}
+                      <div key={item.stage} className="flex flex-col items-center p-3 rounded-xl text-center hover:scale-105 hover:shadow-lg transition-all duration-300 cursor-pointer group min-w-[120px] max-w-[140px]" style={{ backgroundColor: (theme?.background?.secondary || '#f8fafc') + '40' }}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div 
+                            className="w-4 h-4 rounded-full shadow-sm flex-shrink-0" 
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className="font-semibold text-sm truncate" style={{ color: theme?.text?.primary || '#0f172a' }}>
+                            {item.stage}
+                          </span>
+                        </div>
+                        <div className="text-xl font-bold mb-1" style={{ color: theme?.text?.primary || '#0f172a' }}>
+                          {item.count}
+                        </div>
+                        <div 
+                          className="text-xs px-2 py-1 rounded-full font-medium"
+                          style={{ 
+                            backgroundColor: item.color + '20',
+                            color: item.color
+                          }}
                         >
-                          {item.stage} ({percentage.toFixed(1)}%)
-                        </text>
-                      </g>
+                          {percentage.toFixed(1)}%
+                        </div>
+                      </div>
                     )
                   })
                 })()}
-                {/* Center circle */}
-                <circle
-                  cx="120"
-                  cy="120"
-                  r="40"
-                  fill={theme.background.primary}
-                  stroke={theme.border.light}
-                />
-                <text
-                  x="120"
-                  y="115"
-                  textAnchor="middle"
-                  fontSize="24"
-                  fontWeight="bold"
-                  fill={theme.text.primary}
-                >
-                  {allRoles.length}
-                </text>
-                <text
-                  x="120"
-                  y="135"
-                  textAnchor="middle"
-                  fontSize="12"
-                  fill={theme.text.secondary}
-                >
-                  Total
-                </text>
-              </svg>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1132,168 +1336,114 @@ const Analytics = () => {
           <div 
             className="rounded-2xl p-6 shadow-lg border"
             style={{ 
-              backgroundColor: theme.background.primary,
-              borderColor: theme.border.light
+              backgroundColor: theme?.background?.primary || '#ffffff',
+              borderColor: theme?.border?.light || '#e2e8f0'
             }}
           >
-            <h3 className="text-xl font-bold mb-6" style={{ color: theme.text.primary }}>Application Funnel</h3>
+            <h3 className="text-xl font-bold mb-6" style={{ color: theme?.text?.primary || '#0f172a' }}>Application Funnel</h3>
             <ApplicationFunnel data={analyticsData.funnelData} />
-          </div>
-
-          {/* Activity Heatmap */}
-          <div 
-            className="rounded-2xl p-6 shadow-lg border"
-            style={{ 
-              backgroundColor: theme.background.primary,
-              borderColor: theme.border.light
-            }}
-          >
-            <CompactHeatmap title="Activity Heatmap" />
           </div>
         </div>
 
         {/* Role Analysis */}
         <div className="mb-8">
-          <div 
-            className="rounded-2xl p-6 shadow-lg border"
-            style={{ 
-              backgroundColor: theme.background.primary,
-              borderColor: theme.border.light
-            }}
-          >
-            <h3 className="text-xl font-bold mb-6" style={{ color: theme.text.primary }}>Role Analysis</h3>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Most Applied Roles */}
-              <div 
-                className="rounded-xl p-6"
-                style={{ backgroundColor: theme.background.secondary }}
-              >
-                <h4 className="text-lg font-semibold mb-4" style={{ color: theme.text.primary }}>Most Applied Roles</h4>
-                <div className="space-y-4">
-                  {Object.entries(analyticsData.exactRoleData)
-                    .sort(([, a], [, b]) => b.total - a.total)
-                    .slice(0, 5)
-                    .map(([position, data], i) => (
-                      <div key={i} className="flex items-center justify-between">
-                        <span style={{ color: theme.text.secondary }}>{position}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="font-medium" style={{ color: theme.text.primary }}>{data.total}</span>
-                          <span 
-                            className="text-xs px-3 py-0.5 rounded-full whitespace-nowrap"
-                            style={{ 
-                              backgroundColor: theme.status.interview + '20',
-                              color: theme.status.interview
-                            }}
-                          >
-                            {data.interviews} interviews
-                          </span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Most Applied Roles */}
+            <div 
+              className="rounded-2xl p-6 shadow-lg border hover:shadow-xl transition-all duration-300"
+              style={{ 
+                backgroundColor: theme?.background?.primary || '#ffffff',
+                borderColor: theme?.border?.light || '#e2e8f0'
+              }}
+            >
+              <h3 className="text-xl font-bold mb-6" style={{ color: theme?.text?.primary || '#0f172a' }}>Most Applied Roles</h3>
+              <div className="space-y-4">
+                {Object.entries(analyticsData.exactRoleData)
+                  .sort(([, a], [, b]) => b.total - a.total)
+                  .slice(0, 8)
+                  .map(([position, data], i) => (
+                    <div key={i} className="flex items-center justify-between p-4 rounded-lg hover:bg-opacity-50 transition-all duration-300 cursor-pointer group" style={{ backgroundColor: theme?.background?.secondary + '20' || '#f8fafc20' }}>
+                      <div className="flex-1">
+                        <span className="font-medium group-hover:font-semibold transition-all duration-200" style={{ color: theme?.text?.primary || '#0f172a' }}>{position}</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="text-2xl font-bold group-hover:text-3xl transition-all duration-200" style={{ color: theme?.text?.primary || '#0f172a' }}>{data.total}</div>
+                          <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>applications</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold group-hover:text-xl transition-all duration-200" style={{ color: theme?.status?.interview || '#a855f7' }}>
+                            {data.total > 0 ? ((data.interviews / data.total) * 100).toFixed(1) : '0.0'}%
+                          </div>
+                          <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>
+                            {data.interviews} interview{data.interviews !== 1 ? 's' : ''}
+                          </div>
                         </div>
                       </div>
-                    ))}
-                </div>
+                    </div>
+                  ))}
               </div>
+            </div>
 
-              {/* Top Companies */}
-              <div 
-                className="rounded-xl p-6"
-                style={{ backgroundColor: theme.background.secondary }}
-              >
-                <h4 className="text-lg font-semibold mb-4" style={{ color: theme.text.primary }}>Top Companies</h4>
-                <div className="space-y-4">
-                  {analyticsData.companyData
-                    .sort((a, b) => b.applications - a.applications)
-                    .slice(0, 5)
-                    .map((company, i) => (
-                      <div key={i} className="flex items-center justify-between">
-                        <span style={{ color: theme.text.secondary }}>{company.name}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="font-medium" style={{ color: theme.text.primary }}>{company.applications}</span>
-                          <span 
-                            className="text-xs px-3 py-0.5 rounded-full whitespace-nowrap"
-                            style={{ 
-                              backgroundColor: theme.status.interview + '20',
-                              color: theme.status.interview
-                            }}
-                          >
-                            {company.interviews} interviews
-                          </span>
+            {/* Top Companies */}
+            <div 
+              className="rounded-2xl p-6 shadow-lg border hover:shadow-xl transition-all duration-300"
+              style={{ 
+                backgroundColor: theme?.background?.primary || '#ffffff',
+                borderColor: theme?.border?.light || '#e2e8f0'
+              }}
+            >
+              <h3 className="text-xl font-bold mb-6" style={{ color: theme?.text?.primary || '#0f172a' }}>Top Companies</h3>
+              <div className="space-y-4">
+                {analyticsData.companyData
+                  .sort((a, b) => b.applications - a.applications)
+                  .slice(0, 8)
+                  .map((company, i) => (
+                    <div key={i} className="flex items-center justify-between p-4 rounded-lg hover:bg-opacity-50 transition-all duration-300 cursor-pointer group" style={{ backgroundColor: theme?.background?.secondary + '20' || '#f8fafc20' }}>
+                      <div className="flex-1">
+                        <span className="font-medium group-hover:font-semibold transition-all duration-200" style={{ color: theme?.text?.primary || '#0f172a' }}>{company.name}</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="text-2xl font-bold group-hover:text-3xl transition-all duration-200" style={{ color: theme?.text?.primary || '#0f172a' }}>{company.applications}</div>
+                          <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>applications</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold group-hover:text-xl transition-all duration-200" style={{ color: theme?.status?.interview || '#a855f7' }}>
+                            {company.applications > 0 ? ((company.interviews / company.applications) * 100).toFixed(1) : '0.0'}%
+                          </div>
+                          <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>
+                            {company.interviews} interview{company.interviews !== 1 ? 's' : ''}
+                          </div>
                         </div>
                       </div>
-                    ))}
-                </div>
-              </div>
-
-              {/* Response Time */}
-              <div 
-                className="rounded-xl p-6"
-                style={{ backgroundColor: theme.background.secondary }}
-              >
-                <h4 className="text-lg font-semibold mb-4" style={{ color: theme.text.primary }}>Response Time</h4>
-                {analyticsData.responseTimes.total === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-sm" style={{ color: theme.text.tertiary }}>
-                      No response data available yet
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {[
-                      { 
-                        label: "Same Day",
-                        value: analyticsData.responseTimes.sameDay + "%",
-                        count: analyticsData.responseTimes.sameDayCount
-                      },
-                      { 
-                        label: "Within Week",
-                        value: analyticsData.responseTimes.withinWeek + "%",
-                        count: analyticsData.responseTimes.withinWeekCount
-                      },
-                      { 
-                        label: "Over Week",
-                        value: analyticsData.responseTimes.overWeek + "%",
-                        count: analyticsData.responseTimes.overWeekCount
-                      }
-                    ].map((item, i) => (
-                      <div key={i} className="flex items-center justify-between">
-                        <span style={{ color: theme.text.secondary }}>{item.label}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="font-medium" style={{ color: theme.text.primary }}>{item.value}</span>
-                          <span 
-                            className="text-xs px-2 py-0.5 rounded-full"
-                            style={{ 
-                              backgroundColor: theme.primary[100],
-                              color: theme.primary[600]
-                            }}
-                          >
-                            {item.count} response{item.count !== 1 ? 's' : ''}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  ))}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Response Time Analysis */}
+        {/* Response Time Analysis and Activity Heatmap */}
         <div className="mb-8">
-          <div 
-            className="rounded-2xl p-6 shadow-lg border"
-            style={{ 
-              backgroundColor: theme.background.primary,
-              borderColor: theme.border.light
-            }}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold" style={{ color: theme.text.primary }}>Response Time Analysis</h3>
-              {analyticsData.responseTimes.total > 0 && (
-                <div className="text-sm" style={{ color: theme.text.secondary }}>
-                  Based on {analyticsData.responseTimes.total} response{analyticsData.responseTimes.total > 1 ? 's' : ''}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Response Time Analysis - 2/3 width */}
+            <div className="lg:col-span-2">
+              <div 
+                className="rounded-2xl p-6 shadow-lg border h-full"
+                style={{ 
+                  backgroundColor: theme?.background?.primary || '#ffffff',
+                  borderColor: theme?.border?.light || '#e2e8f0'
+                }}
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold" style={{ color: theme?.text?.primary || '#0f172a' }}>Response Time Analysis</h3>
+                  {analyticsData.responseTimes.total > 0 && (
+                    <div className="text-sm" style={{ color: theme?.text?.secondary || '#475569' }}>
+                      Based on {analyticsData.responseTimes.total} response{analyticsData.responseTimes.total > 1 ? 's' : ''}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
             
             {analyticsData.responseTimes.total === 0 ? (
               <div className="text-center py-12">
@@ -1334,19 +1484,34 @@ const Analytics = () => {
                 ].map((item, i) => (
                   <div 
                     key={i}
-                    className="rounded-xl p-6 text-center"
-                    style={{ backgroundColor: theme.background.secondary }}
+                    className="rounded-xl p-6 text-center hover:scale-105 hover:shadow-lg transition-all duration-300 cursor-pointer group"
+                    style={{ backgroundColor: theme?.background?.secondary || '#f8fafc' }}
                   >
-                    <span className="text-4xl mb-4 block">{item.icon}</span>
-                    <div className="text-2xl font-bold mb-1" style={{ color: item.color }}>{item.value}</div>
-                    <div className="text-xs mb-2" style={{ color: theme.text.tertiary }}>
+                    <span className="text-4xl mb-4 block group-hover:scale-110 transition-all duration-200">{item.icon}</span>
+                    <div className="text-2xl font-bold mb-1 group-hover:text-3xl transition-all duration-200" style={{ color: item.color }}>{item.value}</div>
+                    <div className="text-xs mb-2 group-hover:text-sm transition-all duration-200" style={{ color: theme?.text?.tertiary || '#64748b' }}>
                       {item.count} response{item.count !== 1 ? 's' : ''}
                     </div>
-                    <div style={{ color: theme.text.secondary }}>{item.label}</div>
+                    <div className="group-hover:font-medium transition-all duration-200" style={{ color: theme?.text?.secondary || '#475569' }}>{item.label}</div>
                   </div>
                 ))}
               </div>
             )}
+              </div>
+            </div>
+
+            {/* Activity Heatmap - 1/3 width */}
+            <div className="lg:col-span-1">
+              <div 
+                className="rounded-2xl p-6 shadow-lg border h-full"
+                style={{ 
+                  backgroundColor: theme?.background?.primary || '#ffffff',
+                  borderColor: theme?.border?.light || '#e2e8f0'
+                }}
+              >
+                <CompactHeatmap title="Activity Heatmap" />
+              </div>
+            </div>
           </div>
         </div>
       </div>

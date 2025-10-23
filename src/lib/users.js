@@ -448,3 +448,48 @@ export const changePassword = async (currentPassword, newPassword) => {
     throw error
   }
 }
+
+/**
+ * Update user's full name
+ * @param {string} newName - The new full name
+ * @returns {Object} - Updated user data
+ */
+export const updateFullName = async (newName) => {
+  try {
+    const user = auth.currentUser
+    if (!user) {
+      throw new Error('No user signed in')
+    }
+    
+    // Validate name
+    const sanitizedName = newName.trim()
+    
+    if (sanitizedName.length === 0) {
+      throw new Error('Name cannot be empty')
+    }
+    
+    if (sanitizedName.length > 100) {
+      throw new Error('Name must be 100 characters or less')
+    }
+    
+    // Get user document
+    const userData = await getCurrentUserData(user.uid)
+    if (!userData) {
+      throw new Error('User data not found')
+    }
+    
+    // Update name in Firestore
+    await updateDoc(doc(db, 'users', userData.id), {
+      name: sanitizedName,
+      updatedAt: new Date()
+    })
+    
+    return {
+      name: sanitizedName,
+      success: true
+    }
+  } catch (error) {
+    console.error('Error updating full name:', error)
+    throw error
+  }
+}

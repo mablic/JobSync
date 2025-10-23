@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../../App'
 import { useAuth } from '../../contexts/GlobalProvider'
 import { useToast } from '../../toast/Toast'
+import EditUsername from './components/Edit_Username'
 
 const Profile = () => {
   const { theme } = useTheme()
@@ -22,6 +23,7 @@ const Profile = () => {
     new: false,
     confirm: false
   })
+  const [showEditModal, setShowEditModal] = useState(false)
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -245,15 +247,40 @@ const Profile = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Name */}
             <div 
-              className="p-5 rounded-xl"
+              className="p-5 rounded-xl group hover:shadow-md transition-all duration-300"
               style={{ backgroundColor: theme.background.secondary }}
             >
-              <p className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: theme.text.tertiary }}>
-                Full Name
-              </p>
-              <p className="text-xl font-semibold" style={{ color: theme.text.primary }}>
-                {userData?.name || 'Not set'}
-              </p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium uppercase tracking-wide" style={{ color: theme.text.tertiary }}>
+                  Full Name
+                </p>
+                <button
+                  onClick={() => setShowEditModal(true)}
+                  className="px-4 py-2 text-sm font-medium rounded-xl transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
+                  style={{ 
+                    backgroundColor: theme.primary[600],
+                    color: theme.text.inverse
+                  }}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit
+                </button>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <p className="text-xl font-semibold group-hover:text-2xl transition-all duration-200" style={{ color: theme.text.primary }}>
+                  {userData?.name || 'Not set'}
+                </p>
+                {userData?.name && (
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <svg className="w-5 h-5" style={{ color: theme.text.tertiary }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Email */}
@@ -617,6 +644,12 @@ const Profile = () => {
         </div>
 
       </div>
+
+      {/* Edit Username Modal */}
+      <EditUsername 
+        isOpen={showEditModal} 
+        onClose={() => setShowEditModal(false)} 
+      />
     </div>
   )
 }
