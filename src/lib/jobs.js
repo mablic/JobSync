@@ -522,6 +522,167 @@ export const deleteJob = async (jobId) => {
 }
 
 /**
+ * Merge two companies by moving all jobs from source to target company
+ * @param {string} sourceCompanyId - Source company ID (will be removed)
+ * @param {string} targetCompanyId - Target company ID (will receive all jobs)
+ * @param {string} trackingCode - User's tracking code
+ * @returns {Object} - Result with merge details
+ */
+export const mergeCompanies = async (sourceCompanyId, targetCompanyId, trackingCode) => {
+  try {
+    // Get all jobs for this user
+    const q = query(
+      collection(db, 'jobs'),
+      where('Tracking_Code', '==', trackingCode.toUpperCase())
+    )
+    const snapshot = await getDocs(q)
+    
+    const jobs = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+    
+    // Find the actual company names from the dashboard data
+    // The IDs passed are transformed versions of company names
+    // We need to find the original company names in the jobs data
+    const allCompanyNames = [...new Set(jobs.map(job => job.Company).filter(Boolean))]
+    
+    // Find source and target company names by matching the transformed IDs
+    let sourceCompanyName = null
+    let targetCompanyName = null
+    
+    for (const companyName of allCompanyNames) {
+      const transformedId = companyName.toLowerCase().replace(/\s+/g, '-')
+      if (transformedId === sourceCompanyId) {
+        sourceCompanyName = companyName
+      }
+      if (transformedId === targetCompanyId) {
+        targetCompanyName = companyName
+      }
+    }
+    
+    if (!sourceCompanyName) {
+      throw new Error('Source company not found')
+    }
+    if (!targetCompanyName) {
+      throw new Error('Target company not found')
+    }
+    
+    // Get all jobs from source company
+    const sourceJobs = jobs.filter(job => job.Company === sourceCompanyName)
+    const targetJobs = jobs.filter(job => job.Company === targetCompanyName)
+    
+    if (sourceJobs.length === 0) {
+      throw new Error('Source company has no jobs to merge')
+    }
+    
+    let mergedJobsCount = 0
+    
+    // Update each source job to point to target company
+    for (const sourceJob of sourceJobs) {
+      // Update the job's company
+      await updateDoc(doc(db, 'jobs', sourceJob.id), {
+        Company: targetCompanyName,
+        Last_Updated: Timestamp.now(),
+        Update_Time: Timestamp.now()
+      })
+      
+      mergedJobsCount++
+    }
+    
+    return {
+      success: true,
+      mergedJobsCount,
+      sourceCompany: sourceCompanyName,
+      targetCompany: targetCompanyName,
+      message: `Successfully merged ${mergedJobsCount} job(s) from "${sourceCompanyName}" to "${targetCompanyName}"`
+    }
+  } catch (error) {
+    throw error
+  }
+}
+
+/**
+ * Merge two jobs by combining their data into one
+ * @param {string} sourceJobId - Source job ID (will be removed)
+ * @param {string} targetJobId - Target job ID (will receive all data)
+ * @param {string} trackingCode - User's tracking code
+ * @returns {Object} - Result with merge details
+ */
+export const mergeJobs = async (sourceJobId, targetJobId, trackingCode) => {
+  try {
+    // Get the source and target job documents
+    const sourceJobRef = doc(db, 'jobs', sourceJobId)
+    const targetJobRef = doc(db, 'jobs', targetJobId)
+    
+    const sourceJobDoc = await getDoc(sourceJobRef)
+    const targetJobDoc = await getDoc(targetJobRef)
+    
+    if (!sourceJobDoc.exists()) {
+      throw new Error('Source job not found')
+    }
+    if (!targetJobDoc.exists()) {
+      throw new Error('Target job not found')
+    }
+    
+    const sourceJobData = sourceJobDoc.data()
+    const targetJobData = targetJobDoc.data()
+    
+    // Verify both jobs belong to the same user
+    if (sourceJobData.Tracking_Code !== trackingCode.toUpperCase() || 
+        targetJobData.Tracking_Code !== trackingCode.toUpperCase()) {
+      throw new Error('Jobs do not belong to the same user')
+    }
+    
+    // Combine email IDs (remove duplicates)
+    const sourceEmailIds = sourceJobData.Email_IDs || []
+    const targetEmailIds = targetJobData.Email_IDs || []
+    const combinedEmailIds = [...new Set([...sourceEmailIds, ...targetEmailIds])]
+    
+    // Get all job_details for source job
+    const sourceDetailsQuery = query(
+      collection(db, 'job_details'),
+      where('Job_ID', '==', sourceJobId)
+    )
+    const sourceDetailsSnapshot = await getDocs(sourceDetailsQuery)
+    
+    // Update all source job_details to point to target job
+    const updateDetailsPromises = sourceDetailsSnapshot.docs.map(detailDoc => 
+      updateDoc(doc(db, 'job_details', detailDoc.id), {
+        Job_ID: targetJobId,
+        Update_Time: Timestamp.now()
+      })
+    )
+    
+    // Execute all updates in parallel
+    await Promise.all(updateDetailsPromises)
+    
+    // Update target job with combined data
+    await updateDoc(targetJobRef, {
+      Email_IDs: combinedEmailIds,
+      Last_Updated: Timestamp.now(),
+      Update_Time: Timestamp.now()
+    })
+    
+    // Mark source job as merged
+    await updateDoc(sourceJobRef, {
+      _merged_into: targetJobId,
+      _merged_at: Timestamp.now()
+    })
+    
+    return {
+      success: true,
+      sourceJob: sourceJobId,
+      targetJob: targetJobId,
+      mergedDetailsCount: sourceDetailsSnapshot.docs.length,
+      message: `Successfully merged job ${sourceJobId} into ${targetJobId}`
+    }
+  } catch (error) {
+    throw error
+  }
+}
+
+/**
  * Detect and merge duplicate jobs
  * Finds jobs with same company and similar titles, merges them into one
  * @param {string} trackingCode - User's tracking code

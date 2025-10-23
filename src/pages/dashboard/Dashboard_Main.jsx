@@ -9,6 +9,8 @@ import RoleEdit from './components/Role_Edit'
 import EmailDetails from './components/Email_Details'
 import ManualApply from './components/Manual_Apply'
 import DeleteConfirmation from './components/Delete_Confirmation'
+import MergeCompany from './components/Merge_Company'
+import MergeJob from './components/Merge_Job'
 
 const TrackerMain = () => {
   const { theme } = useTheme()
@@ -90,6 +92,8 @@ const TrackerMain = () => {
   const [error, setError] = useState(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, job: null, company: null })
   const [isDeleting, setIsDeleting] = useState(false)
+  const [mergeCompany, setMergeCompany] = useState({ isOpen: false, sourceCompany: null })
+  const [mergeJob, setMergeJob] = useState({ isOpen: false, sourceJob: null, company: null })
 
   // Fetch jobs data from Firebase
   useEffect(() => {
@@ -456,6 +460,44 @@ const TrackerMain = () => {
   // Handle cancel delete
   const handleCancelDelete = () => {
     setDeleteConfirmation({ isOpen: false, job: null, company: null })
+  }
+
+  // Handle merge company request
+  const handleMergeRequest = (company) => {
+    setMergeCompany({
+      isOpen: true,
+      sourceCompany: company
+    })
+  }
+
+  // Handle merge company close
+  const handleMergeClose = () => {
+    setMergeCompany({ isOpen: false, sourceCompany: null })
+  }
+
+  // Handle merge completion - refresh data
+  const handleMergeComplete = async () => {
+    try {
+      const jobs = await getJobsByTrackingCode(userData.emailCode)
+      const transformedData = transformJobsForDashboard(jobs)
+      setCompaniesData(transformedData)
+    } catch (error) {
+      showToast('Failed to refresh data after merge', 'error')
+    }
+  }
+
+  // Handle merge job request
+  const handleMergeJobRequest = (job, company) => {
+    setMergeJob({
+      isOpen: true,
+      sourceJob: job,
+      company: company
+    })
+  }
+
+  // Handle merge job close
+  const handleMergeJobClose = () => {
+    setMergeJob({ isOpen: false, sourceJob: null, company: null })
   }
 
 
@@ -830,21 +872,40 @@ const TrackerMain = () => {
             >
               {/* Company Header */}
               <div className="px-6 py-4 border-b" style={{ borderColor: theme.border.light }}>
-                <div className="flex items-center gap-4">
-                  <div
-                    className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0"
-                    style={{ backgroundColor: theme.primary[600] }}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0"
+                      style={{ backgroundColor: theme.primary[600] }}
+                    >
+                      {company.logo}
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold" style={{ color: theme.text.primary }}>
+                        {company.company}
+                      </h3>
+                      <p className="text-sm" style={{ color: theme.text.tertiary }}>
+                        {company.location} • {company.roles.length} {company.roles.length === 1 ? 'Role' : 'Roles'}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Merge Company Button */}
+                  <button
+                    onClick={() => handleMergeRequest(company)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all hover:shadow-md"
+                    style={{ 
+                      backgroundColor: theme.secondary[100],
+                      color: theme.secondary[600],
+                      border: `1px solid ${theme.secondary[200]}`
+                    }}
+                    title="Merge this company with another"
                   >
-                    {company.logo}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold" style={{ color: theme.text.primary }}>
-                      {company.company}
-                    </h3>
-                    <p className="text-sm" style={{ color: theme.text.tertiary }}>
-                      {company.location} • {company.roles.length} {company.roles.length === 1 ? 'Role' : 'Roles'}
-                    </p>
-                  </div>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    <span className="hidden sm:inline">Merge</span>
+                  </button>
                 </div>
               </div>
 
@@ -937,7 +998,7 @@ const TrackerMain = () => {
                                 </p>
                               </div>
 
-                              {/* Edit & Delete Buttons */}
+                              {/* Edit, Merge & Delete Buttons */}
                               <div className="col-span-12 md:col-span-1 flex justify-end gap-2">
                                 {/* Edit Button */}
                                 <button
@@ -957,6 +1018,26 @@ const TrackerMain = () => {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                   </svg>
                                 </button>
+
+                                {/* Merge Job Button - only show if there are other jobs in the company */}
+                                {company.roles.length > 1 && (
+                                  <button
+                                    className="p-2 rounded-lg hover:bg-opacity-20 transition-all"
+                                    style={{ 
+                                      color: theme.secondary[600],
+                                      backgroundColor: theme.secondary[100]
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleMergeJobRequest(role, company)
+                                    }}
+                                    title="Merge with another job in this company"
+                                  >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                    </svg>
+                                  </button>
+                                )}
 
                                 {/* Delete Button */}
                                 <button
@@ -1177,6 +1258,22 @@ const TrackerMain = () => {
         onConfirm={handleConfirmDelete}
         jobData={deleteConfirmation.job}
         isDeleting={isDeleting}
+      />
+
+      <MergeCompany
+        isOpen={mergeCompany.isOpen}
+        onClose={handleMergeClose}
+        sourceCompany={mergeCompany.sourceCompany}
+        allCompanies={companiesData}
+        onMergeComplete={handleMergeComplete}
+      />
+
+      <MergeJob
+        isOpen={mergeJob.isOpen}
+        onClose={handleMergeJobClose}
+        sourceJob={mergeJob.sourceJob}
+        company={mergeJob.company}
+        onMergeComplete={handleMergeComplete}
       />
     </div>
   )
