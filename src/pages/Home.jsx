@@ -63,6 +63,15 @@ const Home = () => {
       <section className="relative overflow-hidden py-20 sm:py-32" style={{ background: theme.gradients.hero }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
+            {/* Logo Section */}
+            <div className="mb-12 flex justify-center">
+              <img 
+                src="/src/assets/logo.png" 
+                alt="JobSync Logo" 
+                className="w-32 h-32 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-2xl shadow-2xl"
+              />
+            </div>
+            
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight" style={{ color: theme.text.primary }}>
               Stop Tracking Job Applications
               <span className="block mt-2" style={{ background: theme.gradients.primary, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
