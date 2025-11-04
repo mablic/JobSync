@@ -130,9 +130,76 @@ const About = () => {
         </div>
       </section>
 
-      {/* How It Works Technically */}
+      {/* H-1B Sponsorship Directory Feature */}
       <section className="py-16" style={{ background: theme.gradients.subtle }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div 
+            className="rounded-3xl p-8 md:p-12 shadow-2xl border overflow-hidden relative mb-12"
+            style={{ 
+              backgroundColor: theme.background.primary,
+              borderColor: theme.border.light
+            }}
+          >
+            <div 
+              className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl opacity-20"
+              style={{ background: theme.gradients.primary }}
+            ></div>
+            <div className="relative">
+              <div className="flex items-center gap-4 mb-6">
+                <div 
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                  style={{ backgroundColor: theme.primary[100] }}
+                >
+                  <span className="text-3xl">🎯</span>
+                </div>
+                <div>
+                  <div className="inline-block mb-2 px-3 py-1 rounded-full text-xs font-semibold" 
+                       style={{ 
+                         backgroundColor: theme.primary[600],
+                         color: theme.text.inverse 
+                       }}>
+                    NEW FEATURE
+                  </div>
+                  <h2 className="text-3xl font-bold" style={{ color: theme.text.primary }}>
+                    H-1B Sponsorship Directory
+                  </h2>
+                </div>
+              </div>
+              <p className="text-lg mb-6 leading-relaxed" style={{ color: theme.text.secondary }}>
+                JobSync now features a comprehensive directory of over 1,000 companies with their H-1B sponsorship status. 
+                Built from Labor Condition Application (LCA) data, this community-driven resource helps job seekers identify 
+                which companies actively sponsor work visas. You can vote on companies, share your experience, and browse 
+                common sponsored roles to make informed decisions about where to apply.
+              </p>
+              <div className="grid md:grid-cols-3 gap-4 mb-6">
+                <div className="p-4 rounded-xl border" style={{ backgroundColor: theme.background.secondary, borderColor: theme.border.light }}>
+                  <div className="text-2xl font-bold mb-1" style={{ color: theme.primary[600] }}>1,000+</div>
+                  <div className="text-sm" style={{ color: theme.text.secondary }}>Companies Listed</div>
+                </div>
+                <div className="p-4 rounded-xl border" style={{ backgroundColor: theme.background.secondary, borderColor: theme.border.light }}>
+                  <div className="text-2xl font-bold mb-1" style={{ color: theme.primary[600] }}>3,000+</div>
+                  <div className="text-sm" style={{ color: theme.text.secondary }}>Sponsored Roles</div>
+                </div>
+                <div className="p-4 rounded-xl border" style={{ backgroundColor: theme.background.secondary, borderColor: theme.border.light }}>
+                  <div className="text-2xl font-bold mb-1" style={{ color: theme.primary[600] }}>100%</div>
+                  <div className="text-sm" style={{ color: theme.text.secondary }}>Community Driven</div>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <Link
+                  to="/h1bcompanies"
+                  className="px-6 py-3 text-base font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl"
+                  style={{ 
+                    background: theme.gradients.primary,
+                    color: theme.text.inverse
+                  }}
+                >
+                  Explore Directory
+                </Link>
+              </div>
+            </div>
+          </div>
+          
           <h2 className="text-3xl font-bold mb-12 text-center" style={{ color: theme.text.primary }}>
             The Technology Behind It
           </h2>

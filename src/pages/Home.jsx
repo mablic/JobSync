@@ -305,6 +305,74 @@ const Home = () => {
         </div>
       </section>
 
+      {/* H1B Sponsorship Feature Section */}
+      <section className="py-20" style={{ background: theme.gradients.subtle }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div 
+            className="rounded-3xl p-8 md:p-12 shadow-2xl border overflow-hidden relative"
+            style={{ 
+              backgroundColor: theme.background.primary,
+              borderColor: theme.border.light
+            }}
+          >
+            <div 
+              className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl opacity-20"
+              style={{ background: theme.gradients.primary }}
+            ></div>
+            <div className="relative">
+              <div className="flex flex-col md:flex-row items-center gap-8">
+                <div className="flex-shrink-0">
+                  <div 
+                    className="w-32 h-32 rounded-3xl flex items-center justify-center shadow-lg"
+                    style={{ backgroundColor: theme.primary[100] }}
+                  >
+                    <span className="text-6xl">🎯</span>
+                  </div>
+                </div>
+                <div className="flex-1 text-center md:text-left">
+                  <div className="inline-block mb-3 px-3 py-1 rounded-full text-xs font-semibold" 
+                       style={{ 
+                         backgroundColor: theme.primary[600],
+                         color: theme.text.inverse 
+                       }}>
+                    NEW FEATURE
+                  </div>
+                  <h2 className="text-3xl md:text-4xl font-bold mb-4" style={{ color: theme.text.primary }}>
+                    H-1B Sponsorship Directory
+                  </h2>
+                  <p className="text-lg mb-6" style={{ color: theme.text.secondary }}>
+                    Community-driven database of 1,000+ companies and their H-1B sponsorship status. 
+                    Discover which companies sponsor work visas, browse roles, and help others by sharing your experience.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <Link
+                      to="/h1bcompanies"
+                      className="px-6 py-3 text-base font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl text-center"
+                      style={{ 
+                        background: theme.gradients.primary,
+                        color: theme.text.inverse
+                      }}
+                    >
+                      Explore H-1B Directory
+                    </Link>
+                    <Link
+                      to="/about"
+                      className="px-6 py-3 text-base font-semibold rounded-xl border-2 transition-all hover:shadow-md text-center"
+                      style={{ 
+                        borderColor: theme.border.medium,
+                        color: theme.text.secondary
+                      }}
+                    >
+                      Learn More
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
       <section className="py-20" style={{ backgroundColor: theme.background.primary }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

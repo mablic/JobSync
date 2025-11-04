@@ -91,7 +91,6 @@ const SignUp = () => {
       // Track successful sign up
       trackAuth('email', 'sign_up')
       
-      console.log('User registered successfully:', result)
       
       // Show success message
       showToast('🎉 Account created successfully! Check your profile for your unique email.', 'success', 4000)
@@ -127,7 +126,6 @@ const SignUp = () => {
       const currentUser = await getCurrentUser()
       await updateAuthState(currentUser)
       
-      console.log('Google sign up successful:', result)
       
       // Show success message
       showToast('🎉 Welcome to JobSync! Check your profile for your unique email.', 'success', 4000)

@@ -350,10 +350,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is private and proprietary.
 
-## 👤 Author
-
-**Ying Xie**
-
 ## 🙏 Acknowledgments
 
 - **React Team** - For the amazing React 19 library

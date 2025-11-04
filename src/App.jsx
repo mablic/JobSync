@@ -15,6 +15,7 @@ import Forgot_PW from './pages/user/Forgot_PW'
 import Profile from './pages/user/Profile'
 import TrackerMain from './pages/dashboard/Dashboard_Main'
 import Analytics from './pages/dashboard/Analytics'
+import H1BCap from './pages/dashboard/H1BCompanies'
 
 // Theme Context
 const ThemeContext = createContext()
@@ -60,6 +61,7 @@ function App() {
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/dashboard" element={<TrackerMain />} />
                 <Route path="/analytics" element={<Analytics />} />
+                <Route path="/h1bcompanies" element={<H1BCap />} />
               </Routes>
             </div>
           </ToastProvider>

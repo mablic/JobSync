@@ -785,4 +785,3 @@ export const mergeDuplicateJobs = async (trackingCode, userId) => {
     throw error
   }
 }
-

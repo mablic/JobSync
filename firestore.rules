@@ -28,5 +28,19 @@ service cloud.firestore {
     match /mailin/{emailId} {
       allow read, write: if true;
     }
+
+    // H1B Companies: allow public read, authenticated write
+    match /h1b_companies/{companyId} {
+      allow read: if true; // Anyone can view
+      allow create, update: if request.auth != null; // Only authenticated users can add/update
+      allow delete: if false; // No one can delete (safety measure)
+    }
+    
+    // H1B Company Roles: allow public read, authenticated write
+    match /h1b_company_roles/{companyRoleId} {
+      allow read: if true; // Anyone can view
+      allow create, update: if request.auth != null; // Only authenticated users can add/update
+      allow delete: if false; // No one can delete (safety measure)
+    }
   }
 }

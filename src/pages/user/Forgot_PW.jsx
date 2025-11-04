@@ -27,7 +27,6 @@ const Forgot_PW = () => {
       // Send password reset email
       await resetPassword(formData.email)
       
-      console.log('Password reset email sent to:', formData.email)
       setIsSubmitted(true)
       showToast('Password reset email sent! Check your inbox.', 'success')
       

@@ -14,6 +14,7 @@ const Nav = () => {
     { path: '/', label: 'Home' },
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/analytics', label: 'Analytics' },
+    { path: '/h1bcompanies', label: 'Sponsorship Votes' },
     { path: '/about', label: 'About' },
   ]
 

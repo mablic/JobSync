@@ -41,7 +41,6 @@ const SignIn = () => {
       // Track successful sign in
       trackAuth('email', 'sign_in')
       
-      console.log('User signed in successfully')
       navigate('/profile')
       
     } catch (error) {
@@ -73,7 +72,6 @@ const SignIn = () => {
       const currentUser = await getCurrentUser()
       await updateAuthState(currentUser)
       
-      console.log('Google sign in successful:', result)
       
       // Show user their forwarding email if they're new
       if (result.emailCode) {

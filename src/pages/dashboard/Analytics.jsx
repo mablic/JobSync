@@ -302,23 +302,15 @@ const Analytics = () => {
       { stage: "Rejected", count: data.rejected || 0, color: theme?.status?.rejected || '#ef4444' }
     ] // Show ALL stages, even with 0 count
 
-    const appliedCount = stages[0].count || 1 // Use first stage (Applied) as baseline
+    // Percentages should be based on TOTAL applications across all stages
+    const totalCount = stages.reduce((sum, s) => sum + s.count, 0) || 1
     
     return (
       <div className="space-y-3">
         {stages.map((stage, i) => {
-          // For funnel visualization, show conversion rate from applied stage
-          // Cap at 100% to prevent display issues
-          let conversionRate = 0
-          if (i === 0) {
-            // First stage (Applied) is always 100%
-            conversionRate = 100
-          } else if (appliedCount > 0) {
-            // Later stages show conversion rate from applied
-            conversionRate = Math.min((stage.count / appliedCount) * 100, 100)
-          }
-          
-          const displayPercent = conversionRate.toFixed(1)
+          // Percent of total applications (including rejected)
+          const percentOfTotal = Math.min((stage.count / totalCount) * 100, 100)
+          const displayPercent = percentOfTotal.toFixed(1)
           
           return (
             <div key={stage.stage} className="group hover:bg-opacity-50 p-2 rounded-lg transition-all duration-300 cursor-pointer relative">
@@ -345,18 +337,16 @@ const Analytics = () => {
                     </div>
                     <div className="text-center">
                       <div className="text-lg font-bold" style={{ color: stage.color }}>
-                        {i === 0 ? '100.0' : displayPercent}%
+                        {displayPercent}%
                       </div>
                       <div className="text-xs" style={{ color: theme?.text?.secondary || '#475569' }}>
-                        conversion rate
+                        of total
                       </div>
                     </div>
                   </div>
-                  {i > 0 && (
-                    <div className="text-xs mt-2 pt-2 border-t" style={{ borderColor: theme?.border?.light || '#e2e8f0' }}>
-                      {appliedCount > 0 ? `${((stage.count / appliedCount) * 100).toFixed(1)}%` : '0.0%'} of total applications
-                    </div>
-                  )}
+                  <div className="text-xs mt-2 pt-2 border-t" style={{ borderColor: theme?.border?.light || '#e2e8f0' }}>
+                    {`${displayPercent}%`} of total applications
+                  </div>
                 </div>
               </div>
 
@@ -368,7 +358,7 @@ const Analytics = () => {
                     className="text-xs px-2 py-0.5 rounded-full group-hover:scale-110 transition-all duration-200"
                     style={{ backgroundColor: stage.color + '20', color: stage.color }}
                   >
-                    {i === 0 ? '100.0' : displayPercent}%
+                      {displayPercent}%
                   </span>
                 </div>
               </div>
@@ -376,7 +366,7 @@ const Analytics = () => {
                 <div 
                   className="h-full rounded-full transition-all duration-500 group-hover:shadow-sm"
                   style={{ 
-                    width: `${i === 0 ? 100 : Math.min(conversionRate, 100)}%`,
+                    width: `${Math.min(percentOfTotal, 100)}%`,
                     backgroundColor: stage.color
                   }}
                 />
@@ -805,7 +795,7 @@ const Analytics = () => {
               </text>
               <text
                 x={centerX}
-                y={centerY + 10}
+                y={centerY + 15}
                 textAnchor="middle"
                 style={{ fill: theme.text.secondary, fontSize: '10' }}
               >
@@ -1264,8 +1254,9 @@ const Analytics = () => {
                   />
                   <text
                     x="160"
-                    y="150"
+                    y="160"
                     textAnchor="middle"
+                    dominantBaseline="middle"
                     fontSize="36"
                     fontWeight="bold"
                     fill={theme?.text?.primary || '#0f172a'}
@@ -1274,7 +1265,7 @@ const Analytics = () => {
                   </text>
                   <text
                     x="160"
-                    y="175"
+                    y="190"
                     textAnchor="middle"
                     fontSize="16"
                     fill={theme?.text?.secondary || '#475569'}

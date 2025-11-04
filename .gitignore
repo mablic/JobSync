@@ -573,3 +573,5 @@ local/
 config.json
 secrets.json
 credentials.json
+
+scripts/services.json
