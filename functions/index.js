@@ -77,7 +77,13 @@ exports.receiveEmail = functions
   }
 
   try {
-    // Log what keys CloudMailin is sending
+    // Log entire CloudMailin request structure
+    console.log('\n========================');
+    console.log('📧 ENTIRE CLOUDMAILIN REQUEST');
+    console.log('========================');
+    console.log('Full Request Body:');
+    console.log(JSON.stringify(req.body, null, 2));
+    console.log('========================\n');
     
     // CloudMailin sends email data in this format
     const emailData = req.body;
@@ -337,6 +343,14 @@ exports.receiveEmail = functions
       });
     }
     
+    // Save the ENTIRE HTML content from CloudMailin - NO PARSING, NO EXTRACTION
+    // Just save it as-is so the frontend can handle it
+    let htmlContent = html || null;
+    
+    if (htmlContent) {
+      console.log(`✅ Saving entire HTML content from CloudMailin: ${htmlContent.length} chars`);
+    }
+    
     // Store email in 'mailin' collection - ONLY the parsed fields + Update_Time
     const emailRef = await admin.firestore().collection('mailin').add({
       Original_Sender: originalSender,           // 1. Original sender (HR/recruiter)
@@ -345,7 +359,8 @@ exports.receiveEmail = functions
       Tracking_Code: emailCode,                  // 4. Tracking code (ABC123)
       Original_Sent_At: originalSentDate,        // 5. When original email was sent
       Subject: subject,                          // 6. Original email subject
-      Content_Details: originalContent,          // 7. Original email body (cleaned)
+      Content_Details: originalContent,          // 7. Original email body (cleaned plain text)
+      Content_Details_html: htmlContent,         // 8. HTML content if available
       Update_Time: admin.firestore.FieldValue.serverTimestamp(),
     });
     
