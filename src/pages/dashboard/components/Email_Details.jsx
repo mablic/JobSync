@@ -110,7 +110,7 @@ const EmailDetails = ({ email, emails, stageName, jobId, isOpen, onClose, onSave
 
       {/* Slide-in Panel */}
       <div 
-        className={`fixed top-0 right-0 h-full w-full md:w-1/2 lg:w-2/5 z-50 shadow-2xl transform transition-transform duration-300 ease-out flex flex-col ${
+        className={`fixed top-0 right-0 h-full w-full md:w-3/4 z-50 shadow-2xl transform transition-transform duration-300 ease-out flex flex-col ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{ 
@@ -286,14 +286,106 @@ const EmailDetails = ({ email, emails, stageName, jobId, isOpen, onClose, onSave
                 </div>
 
                 {/* Email Body */}
-                <div className="prose prose-sm max-w-none">
-                  <div 
-                    className="whitespace-pre-wrap leading-relaxed text-base"
-                    style={{ color: theme.text.secondary }}
-                  >
-                    {fullEmailContent.Content_Details || 'No content available'}
-                  </div>
-                </div>
+                {(() => {
+                  // If HTML content is available, display it directly
+                  if (fullEmailContent?.Content_Details_html) {
+                    return (
+                      <div
+                        className="w-full rounded-lg overflow-hidden"
+                        style={{
+                          backgroundColor: theme.background.primary,
+                          border: `1px solid ${theme.border.light}`
+                        }}
+                      >
+                        <style>{`
+                          .email-html-content img {
+                            max-width: 100% !important;
+                            height: auto !important;
+                            object-fit: contain !important;
+                            aspect-ratio: auto !important;
+                          }
+                          .email-html-content div[style*="width"] {
+                            max-width: 100% !important;
+                          }
+                          .email-html-content table {
+                            max-width: 100% !important;
+                            width: auto !important;
+                          }
+                          .email-html-content td, .email-html-content th {
+                            max-width: none !important;
+                            width: auto !important;
+                          }
+                        `}</style>
+                        <div
+                          className="email-html-content w-full"
+                          dangerouslySetInnerHTML={{ __html: fullEmailContent.Content_Details_html }}
+                          style={{
+                            width: '100%',
+                            overflow: 'auto',
+                            padding: '20px'
+                          }}
+                        />
+                      </div>
+                    )
+                  }
+                  
+                  // Format regular email content
+                  const formatEmailContent = (text) => {
+                    if (!text) return 'No content available'
+                    
+                    // Remove invisible characters
+                    let formatted = text.replace(/[\u200B-\u200D\uFEFF\u200E\u200F]/g, '')
+                    
+                    // Convert URLs in angle brackets to clickable links
+                    formatted = formatted.replace(/<((https?:\/\/[^>]+))>/gi, (match, url) => {
+                      return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 hover:underline break-all">${url}</a>`
+                    })
+                    
+                    // Also convert plain URLs
+                    formatted = formatted.replace(/(https?:\/\/[^\s<>]+)/gi, (match, url) => {
+                      return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 hover:underline break-all">${url}</a>`
+                    })
+                    
+                    // Remove image placeholders or convert them
+                    formatted = formatted.replace(/\[image:([^\]]+)\]/gi, (match, imageName) => {
+                      // Try to find a matching URL for this image
+                      const urlMatch = formatted.match(new RegExp(`<([^>]*${imageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^>]*)>`, 'i'))
+                      if (urlMatch) {
+                        return `<img src="${urlMatch[1]}" alt="${imageName}" class="inline-block max-w-xs h-auto rounded" onerror="this.style.display='none'" />`
+                      }
+                      return '' // Remove image placeholder if no URL found
+                    })
+                    
+                    // Convert line breaks to <br>
+                    formatted = formatted.split('\n').map((line, index, array) => {
+                      const trimmed = line.trim()
+                      if (trimmed === '' && index < array.length - 1) {
+                        return '<br>'
+                      }
+                      return line || ''
+                    }).join('<br>')
+                    
+                    return formatted
+                  }
+                  
+                  const formattedContent = formatEmailContent(fullEmailContent?.Content_Details)
+                  
+                  return (
+                    <div
+                      className="prose prose-sm max-w-none rounded-lg p-6"
+                      style={{
+                        backgroundColor: theme.background.primary,
+                        border: `1px solid ${theme.border.light}`
+                      }}
+                    >
+                      <div
+                        className="whitespace-pre-wrap leading-relaxed text-base"
+                        style={{ color: theme.text.secondary }}
+                        dangerouslySetInnerHTML={{ __html: formattedContent }}
+                      />
+                    </div>
+                  )
+                })()}
               </>
             )}
 
