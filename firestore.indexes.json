@@ -13,6 +13,52 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "job_details",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Job_ID",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "Update_Time",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Tracking_Code",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "Last_Updated",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "Tracking_Code",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "Current_Stage",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "Last_Updated",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

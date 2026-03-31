@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTheme } from '../../App'
 import { useAuth } from '../../contexts/GlobalProvider'
 import AnalyticsDemo from './components/Analytics_Demo'
-import { getJobsByTrackingCode, transformJobsForDashboard } from '../../lib/jobs'
+import { getJobsByTrackingCodeForAnalytics, transformJobsForDashboard } from '../../lib/jobs'
 
 const Analytics = () => {
   const { theme } = useTheme()
@@ -11,8 +11,10 @@ const Analytics = () => {
   const [companiesData, setCompaniesData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  /** Default active-only for faster first load (fewer jobs + job_details reads). */
+  const [analyticsScope, setAnalyticsScope] = useState('active')
 
-  // Fetch jobs data from Firebase
+  // Fetch jobs — scope 'active' queries in-progress stages only; 'all' loads full history
   useEffect(() => {
     const fetchJobs = async () => {
       if (!isAuthenticated) {
@@ -30,7 +32,7 @@ const Analytics = () => {
       try {
         setLoading(true)
         setError(null)
-        const jobs = await getJobsByTrackingCode(userData.emailCode)
+        const jobs = await getJobsByTrackingCodeForAnalytics(userData.emailCode, analyticsScope)
         const transformedData = transformJobsForDashboard(jobs)
         setCompaniesData(transformedData)
       } catch (err) {
@@ -41,7 +43,7 @@ const Analytics = () => {
     }
 
     fetchJobs()
-  }, [userData, isAuthenticated])
+  }, [userData, isAuthenticated, analyticsScope])
 
   // Get all roles from companies data
   const allRoles = companiesData.flatMap(company => company.roles)
@@ -1076,16 +1078,28 @@ const Analytics = () => {
   if (allRoles.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: theme.background.secondary }}>
-        <div className="text-center max-w-md">
+        <div className="text-center max-w-md px-4">
           <div className="w-24 h-24 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.primary[100] }}>
             <span className="text-4xl">📊</span>
           </div>
           <h3 className="text-lg font-semibold mb-2" style={{ color: theme.text.primary }}>
-            No Analytics Data Yet
+            {analyticsScope === 'active' ? 'No active applications' : 'No analytics data yet'}
           </h3>
           <p className="text-sm mb-4" style={{ color: theme.text.secondary }}>
-            Start applying to jobs to see your analytics dashboard
+            {analyticsScope === 'active'
+              ? 'Nothing in progress right now (applied through interview). Load all applications to include offers, rejections, and closed roles.'
+              : 'Start applying to jobs to see your analytics dashboard.'}
           </p>
+          {analyticsScope === 'active' && (
+            <button
+              type="button"
+              onClick={() => setAnalyticsScope('all')}
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 shadow-md"
+              style={{ backgroundColor: theme.primary[600], color: theme.text.inverse }}
+            >
+              Load all applications
+            </button>
+          )}
         </div>
       </div>
     )
@@ -1107,13 +1121,49 @@ const Analytics = () => {
     <div className="min-h-screen" style={{ backgroundColor: theme.background.secondary }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-3" style={{ color: theme.text.primary }}>
-            Analytics Dashboard
-          </h1>
-          <p className="text-lg" style={{ color: theme.text.secondary }}>
-            Insights into your job application journey
-          </p>
+        <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-4xl font-bold mb-3" style={{ color: theme.text.primary }}>
+              Analytics Dashboard
+            </h1>
+            <p className="text-lg" style={{ color: theme.text.secondary }}>
+              Insights into your job application journey
+            </p>
+            <p className="text-sm mt-2 max-w-xl" style={{ color: theme.text.tertiary }}>
+              {analyticsScope === 'active'
+                ? 'Showing active applications only (applied → interview). Faster initial load. Switch to All to include offers and rejections.'
+                : 'Showing every application, including offers and rejections.'}
+            </p>
+          </div>
+          <div
+            className="flex shrink-0 rounded-xl border p-1 gap-1 self-start"
+            style={{ backgroundColor: theme.background.primary, borderColor: theme.border.medium }}
+            role="group"
+            aria-label="Analytics data scope"
+          >
+            <button
+              type="button"
+              onClick={() => setAnalyticsScope('active')}
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+              style={{
+                backgroundColor: analyticsScope === 'active' ? theme.primary[600] : 'transparent',
+                color: analyticsScope === 'active' ? theme.text.inverse : theme.text.secondary
+              }}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnalyticsScope('all')}
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+              style={{
+                backgroundColor: analyticsScope === 'all' ? theme.primary[600] : 'transparent',
+                color: analyticsScope === 'all' ? theme.text.inverse : theme.text.secondary
+              }}
+            >
+              All applications
+            </button>
+          </div>
         </div>
 
         {/* Activity Trends - Full Width */}
@@ -1169,18 +1219,42 @@ const Analytics = () => {
                 
                 <svg width="320" height="320" viewBox="0 0 320 320">
                   {(() => {
+                    const fd = analyticsData.funnelData
+                    const interviewCount =
+                      (fd.interview1 || 0) +
+                      (fd.interview2 || 0) +
+                      (fd.interview3 || 0) +
+                      (fd.interview4 || 0) +
+                      (fd.interview5 || 0) +
+                      (fd.interview6 || 0)
+
                     const data = [
-                      { stage: "Applied", count: analyticsData.funnelData.applied || 0, color: "#3b82f6" },
-                      { stage: "Screening", count: analyticsData.funnelData.screening || 0, color: "#8b5cf6" },
-                      { stage: "Interview", count: analyticsData.funnelData.interview || 0, color: "#f59e0b" },
-                      { stage: "Offer", count: analyticsData.funnelData.offer || 0, color: "#10b981" },
-                      { stage: "Rejected", count: analyticsData.funnelData.rejected || 0, color: "#ef4444" }
-                    ].filter(item => item.count > 0)
+                      { stage: 'Applied', count: fd.applied || 0, color: '#3b82f6' },
+                      { stage: 'Screening', count: fd.screening || 0, color: '#8b5cf6' },
+                      { stage: 'Interview', count: interviewCount, color: '#f59e0b' },
+                      { stage: 'Offer', count: fd.offer || 0, color: '#10b981' },
+                      { stage: 'Rejected', count: fd.rejected || 0, color: '#ef4444' }
+                    ].filter((item) => item.count > 0)
 
                     const total = data.reduce((sum, item) => sum + item.count, 0)
                     const centerX = 160
                     const centerY = 160
                     const radius = 120
+
+                    /** Full 360° slice: single arc collapses (start === end). Use two semicircles. */
+                    const fullPiePath = (cx, cy, r) => {
+                      const xTop = cx
+                      const yTop = cy - r
+                      const xBot = cx
+                      const yBot = cy + r
+                      return [
+                        'M', cx, cy,
+                        'L', xTop, yTop,
+                        'A', r, r, 0, 1, 1, xBot, yBot,
+                        'A', r, r, 0, 1, 1, xTop, yTop,
+                        'Z'
+                      ].join(' ')
+                    }
 
                     let startAngle = -90
                     return data.map((item, i) => {
@@ -1188,20 +1262,24 @@ const Analytics = () => {
                       const angle = (percentage / 100) * 360
                       const endAngle = startAngle + angle
 
-                      const startRad = (startAngle * Math.PI) / 180
-                      const endRad = (endAngle * Math.PI) / 180
-                      const x1 = centerX + radius * Math.cos(startRad)
-                      const y1 = centerY + radius * Math.sin(startRad)
-                      const x2 = centerX + radius * Math.cos(endRad)
-                      const y2 = centerY + radius * Math.sin(endRad)
-                      const largeArcFlag = angle > 180 ? 1 : 0
-
-                      const path = [
-                        'M', centerX, centerY,
-                        'L', x1, y1,
-                        'A', radius, radius, 0, largeArcFlag, 1, x2, y2,
-                        'Z'
-                      ].join(' ')
+                      let path
+                      if (angle >= 359.99) {
+                        path = fullPiePath(centerX, centerY, radius)
+                      } else {
+                        const startRad = (startAngle * Math.PI) / 180
+                        const endRad = (endAngle * Math.PI) / 180
+                        const x1 = centerX + radius * Math.cos(startRad)
+                        const y1 = centerY + radius * Math.sin(startRad)
+                        const x2 = centerX + radius * Math.cos(endRad)
+                        const y2 = centerY + radius * Math.sin(endRad)
+                        const largeArcFlag = angle > 180 ? 1 : 0
+                        path = [
+                          'M', centerX, centerY,
+                          'L', x1, y1,
+                          'A', radius, radius, 0, largeArcFlag, 1, x2, y2,
+                          'Z'
+                        ].join(' ')
+                      }
 
                       startAngle += angle
 
@@ -1279,13 +1357,22 @@ const Analytics = () => {
               <div className="w-full max-w-4xl">
                 <div className="flex flex-wrap justify-center gap-4">
                 {(() => {
+                  const fd = analyticsData.funnelData
+                  const interviewCount =
+                    (fd.interview1 || 0) +
+                    (fd.interview2 || 0) +
+                    (fd.interview3 || 0) +
+                    (fd.interview4 || 0) +
+                    (fd.interview5 || 0) +
+                    (fd.interview6 || 0)
+
                   const data = [
-                    { stage: "Applied", count: analyticsData.funnelData.applied || 0, color: "#3b82f6" },
-                    { stage: "Screening", count: analyticsData.funnelData.screening || 0, color: "#8b5cf6" },
-                    { stage: "Interview", count: analyticsData.funnelData.interview || 0, color: "#f59e0b" },
-                    { stage: "Offer", count: analyticsData.funnelData.offer || 0, color: "#10b981" },
-                    { stage: "Rejected", count: analyticsData.funnelData.rejected || 0, color: "#ef4444" }
-                  ].filter(item => item.count > 0)
+                    { stage: 'Applied', count: fd.applied || 0, color: '#3b82f6' },
+                    { stage: 'Screening', count: fd.screening || 0, color: '#8b5cf6' },
+                    { stage: 'Interview', count: interviewCount, color: '#f59e0b' },
+                    { stage: 'Offer', count: fd.offer || 0, color: '#10b981' },
+                    { stage: 'Rejected', count: fd.rejected || 0, color: '#ef4444' }
+                  ].filter((item) => item.count > 0)
 
                   const total = data.reduce((sum, item) => sum + item.count, 0)
                   

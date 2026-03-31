@@ -1,10 +1,22 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useTheme } from '../../App'
 import { useAuth } from '../../contexts/GlobalProvider'
 import DashboardDemo from './components/Dashboard_Demo'
 import { useToast } from '../../toast/Toast'
-import { getJobsByTrackingCode, transformJobsForDashboard, updateJob, addManualJob, deleteJob } from '../../lib/jobs'
+import { Timestamp } from 'firebase/firestore'
+import {
+  getJobsByTrackingCodePage,
+  getDashboardJobCounts,
+  getJobDetails,
+  transformJobsForDashboard,
+  updateJob,
+  addManualJob,
+  deleteJob,
+  closeStaleOpenJobs,
+  JOBS_PAGE_SIZE,
+  INTERVIEW_STAGES
+} from '../../lib/jobs'
 import RoleEdit from './components/Role_Edit'
 import EmailDetails from './components/Email_Details'
 import ManualApply from './components/Manual_Apply'
@@ -12,9 +24,120 @@ import DeleteConfirmation from './components/Delete_Confirmation'
 import MergeCompany from './components/Merge_Company'
 import MergeJob from './components/Merge_Job'
 
+/** One spinner style for the whole dashboard: primary ring, gap at top, motion-reduce safe */
+const DashboardSpinner = ({ theme, size = 'md', className = '', withGlow = false, ariaHidden = false }) => {
+  const dim =
+    size === 'xs'
+      ? 'w-3.5 h-3.5 border-2'
+      : size === 'sm'
+        ? 'w-8 h-8 border-2'
+        : size === 'md'
+          ? 'w-12 h-12 border-[3px]'
+          : 'w-14 h-14 border-4'
+
+  return (
+    <div
+      role={ariaHidden ? 'presentation' : 'status'}
+      aria-hidden={ariaHidden || undefined}
+      aria-label={ariaHidden ? undefined : 'Loading'}
+      className={`shrink-0 rounded-full border-solid border-t-transparent animate-spin motion-reduce:border-t-current motion-reduce:animate-none ${dim} ${className}`}
+      style={{
+        borderColor: theme.primary[600],
+        borderTopColor: 'transparent',
+        ...(withGlow ? { boxShadow: `0 0 24px ${theme.primary[600]}40` } : {})
+      }}
+    />
+  )
+}
+
+/** Placeholder layout while the first page of jobs loads — avoids a blank full-screen spinner */
+const DashboardInitialSkeleton = ({ theme }) => {
+  const bar = (className = '') => (
+    <div
+      className={`rounded-lg animate-pulse ${className}`}
+      style={{ backgroundColor: theme.border.light }}
+    />
+  )
+
+  return (
+    <div
+      className="space-y-0 motion-reduce:animate-none"
+      aria-busy="true"
+      aria-label="Loading dashboard"
+    >
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="rounded-2xl p-6 shadow-sm border"
+            style={{
+              backgroundColor: theme.background.primary,
+              borderColor: theme.border.light
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              {bar('w-10 h-10 rounded-xl')}
+              {bar('h-8 w-12')}
+            </div>
+            {bar('h-4 w-28 max-w-full')}
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs mb-6 -mt-4 flex items-center gap-2" style={{ color: theme.text.tertiary }}>
+        <DashboardSpinner theme={theme} size="xs" className="inline-block motion-reduce:hidden" ariaHidden />
+        Loading your applications…
+      </p>
+
+      <div className="mb-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          {bar('h-11 w-full max-w-md')}
+          {bar('h-11 w-full max-w-[240px]')}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i}>{bar('h-9 w-24')}</div>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        {[1, 2].map((c) => (
+          <div
+            key={c}
+            className="rounded-xl shadow-md border overflow-hidden"
+            style={{
+              backgroundColor: theme.background.primary,
+              borderColor: theme.border.light
+            }}
+          >
+            <div
+              className="px-6 py-4 border-b flex items-center gap-4"
+              style={{ borderColor: theme.border.light }}
+            >
+              {bar('w-14 h-14 rounded-xl flex-shrink-0')}
+              <div className="flex-1 space-y-2 py-1 min-w-0">
+                {bar('h-6 w-48 max-w-full')}
+                {bar('h-4 w-32 max-w-full opacity-80')}
+              </div>
+            </div>
+            <div className="divide-y" style={{ borderColor: theme.border.light }}>
+              {[1, 2].map((r) => (
+                <div key={r} className="px-6 py-4">
+                  {bar('h-16 w-full max-w-full opacity-90')}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const TrackerMain = () => {
-  const { theme } = useTheme()
-  const { userData, isAuthenticated } = useAuth()
+  const { theme, isDarkMode } = useTheme()
+  const { userData, isAuthenticated, loading: authLoading } = useAuth()
   const showToast = useToast()
   const [selectedFilter, setSelectedFilter] = useState('active')
   const [searchTerm, setSearchTerm] = useState('')
@@ -87,77 +210,188 @@ const TrackerMain = () => {
   const [editingCompany, setEditingCompany] = useState(null)
   const [emailDetails, setEmailDetails] = useState(null)
   const [showManualApply, setShowManualApply] = useState(false)
-  const [companiesData, setCompaniesData] = useState([])
+  const [loadedJobs, setLoadedJobs] = useState([])
+  const [hasMoreJobs, setHasMoreJobs] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const jobsCursorRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, job: null, company: null })
   const [isDeleting, setIsDeleting] = useState(false)
   const [mergeCompany, setMergeCompany] = useState({ isOpen: false, sourceCompany: null })
   const [mergeJob, setMergeJob] = useState({ isOpen: false, sourceJob: null, company: null })
+  const [autoCloseMonths, setAutoCloseMonths] = useState(3)
+  const [autoCloseModalOpen, setAutoCloseModalOpen] = useState(false)
+  const [autoCloseRunning, setAutoCloseRunning] = useState(false)
+  const [jobCounts, setJobCounts] = useState(null)
+  const [listRefreshing, setListRefreshing] = useState(false)
+  const isFirstJobsListFetchRef = useRef(true)
 
-  // Fetch jobs data from Firebase
-  useEffect(() => {
-    const fetchJobs = async () => {
-      if (!isAuthenticated) {
-        setLoading(false)
-        setCompaniesData([])
-        return
-      }
+  const autoCloseMonthOptions = [1, 2, 3, 6, 9, 12, 18, 24]
 
-      if (!userData?.emailCode) {
-        setLoading(false)
-        setError('No tracking code found. Please check your profile settings.')
-        return
-      }
+  const refreshJobCounts = useCallback(async () => {
+    if (!userData?.emailCode) return
+    try {
+      const counts = await getDashboardJobCounts(userData.emailCode)
+      setJobCounts(counts)
+    } catch {
+      // Counts are supplementary; list still works
+    }
+  }, [userData?.emailCode])
 
-      try {
+  const companiesData = useMemo(
+    () => transformJobsForDashboard(loadedJobs),
+    [loadedJobs]
+  )
+
+  const refreshJobsFromStart = useCallback(
+    async ({ showFullPageSpinner = true } = {}) => {
+      if (!userData?.emailCode) return
+      jobsCursorRef.current = null
+      if (showFullPageSpinner) {
+        setLoadedJobs([])
         setLoading(true)
-        setError(null)
-        const jobs = await getJobsByTrackingCode(userData.emailCode)
-        const transformedData = transformJobsForDashboard(jobs)
-        setCompaniesData(transformedData)
-      } catch (err) {
-        setError('Failed to load job applications. Please try again.')
-      } finally {
-        setLoading(false)
+      } else {
+        setListRefreshing(true)
       }
+      setError(null)
+      try {
+        const { jobs, lastDocSnapshot, hasMore } = await getJobsByTrackingCodePage(
+          userData.emailCode,
+          JOBS_PAGE_SIZE,
+          null,
+          selectedFilter
+        )
+        jobsCursorRef.current = lastDocSnapshot
+        setHasMoreJobs(hasMore)
+        setLoadedJobs(jobs)
+      } catch (err) {
+        if (showFullPageSpinner) {
+          setError('Failed to load job applications. Please try again.')
+        } else {
+          showToast('Could not refresh the list for this filter.', 'error')
+        }
+      } finally {
+        if (showFullPageSpinner) {
+          setLoading(false)
+          isFirstJobsListFetchRef.current = false
+        } else {
+          setListRefreshing(false)
+        }
+      }
+    },
+    [userData?.emailCode, selectedFilter, showToast]
+  )
+
+  const loadMoreJobs = useCallback(async () => {
+    if (!userData?.emailCode || !hasMoreJobs || loadingMore || listRefreshing) return
+    setLoadingMore(true)
+    try {
+      const { jobs, lastDocSnapshot, hasMore } = await getJobsByTrackingCodePage(
+        userData.emailCode,
+        JOBS_PAGE_SIZE,
+        jobsCursorRef.current,
+        selectedFilter
+      )
+      jobsCursorRef.current = lastDocSnapshot
+      setHasMoreJobs(hasMore)
+      if (jobs.length > 0) {
+        setLoadedJobs((prev) => [...prev, ...jobs])
+      }
+    } catch {
+      showToast('Failed to load more applications', 'error')
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [userData?.emailCode, hasMoreJobs, loadingMore, listRefreshing, showToast, selectedFilter])
+
+  const loadMoreSentinelRef = useRef(null)
+
+  useEffect(() => {
+    if (!isAuthenticated || !userData?.emailCode || loading || listRefreshing || !hasMoreJobs) return
+    const el = loadMoreSentinelRef.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries
+        if (!entry?.isIntersecting || loadingMore || listRefreshing) return
+        loadMoreJobs()
+      },
+      {
+        root: null,
+        // Small bottom inset only — loads as you approach the end; avoids the old 240px “load everything” behavior
+        rootMargin: '0px 0px 120px 0px',
+        threshold: 0
+      }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [isAuthenticated, userData?.emailCode, loading, listRefreshing, hasMoreJobs, loadingMore, loadMoreJobs, selectedFilter])
+
+  // Global stat counts (full tracker — not paginated / not filter-scoped)
+  useEffect(() => {
+    if (authLoading) return
+    if (!isAuthenticated) {
+      setJobCounts(null)
+      return
+    }
+    if (!userData?.emailCode) {
+      setJobCounts(null)
+      return
+    }
+    refreshJobCounts()
+  }, [authLoading, isAuthenticated, userData?.emailCode, refreshJobCounts])
+
+  // Paginated list — refetch when filter changes; wait for auth so we never flash "no code" while Firestore user doc is still loading
+  useEffect(() => {
+    if (authLoading) {
+      return
     }
 
-    fetchJobs()
-  }, [userData, isAuthenticated])
+    if (!isAuthenticated) {
+      isFirstJobsListFetchRef.current = true
+      setLoading(false)
+      setListRefreshing(false)
+      setLoadedJobs([])
+      setHasMoreJobs(false)
+      jobsCursorRef.current = null
+      setError(null)
+      return
+    }
+
+    if (!userData?.emailCode) {
+      setLoading(false)
+      setError('No tracking code found. Please check your profile settings.')
+      return
+    }
+
+    refreshJobsFromStart({ showFullPageSpinner: isFirstJobsListFetchRef.current })
+  }, [authLoading, isAuthenticated, userData?.emailCode, selectedFilter, refreshJobsFromStart])
 
   // Use real data if available, otherwise use empty array
   const displayData = companiesData.length > 0 ? companiesData : []
 
-  // Calculate stats from grouped data
   const allRoles = displayData.flatMap(company => company.roles)
-  
-  // Helper function to check if a role was updated today
-  const isUpdatedToday = (role) => {
-    if (!role.rawData?.Last_Updated) return false
-    const lastUpdated = role.rawData.Last_Updated.toDate ? role.rawData.Last_Updated.toDate() : new Date(role.rawData.Last_Updated)
-    const today = new Date()
-    return lastUpdated.toDateString() === today.toDateString()
-  }
-  
-  const stats = {
-    total: allRoles.length,
-    active: allRoles.filter(role => !['rejected', 'offer'].includes(role.currentStage)).length,
-    interviews: allRoles.filter(role => ['interview1', 'interview2'].includes(role.currentStage)).length,
-    offers: allRoles.filter(role => role.currentStage === 'offer').length,
-    updatedToday: allRoles.filter(role => isUpdatedToday(role)).length
+
+  const statCards = {
+    total: jobCounts?.total ?? null,
+    active: jobCounts?.active ?? null,
+    interviews: jobCounts?.interviews ?? null
   }
 
-  const statusFilters = [
-    { key: 'active', label: 'Active', count: stats.active },
-    { key: 'today', label: '📬 Updated Today', count: stats.updatedToday, highlight: true },
-    { key: 'all', label: 'All', count: allRoles.length },
-    { key: 'applied', label: 'Applied', count: allRoles.filter(r => r.currentStage === 'applied').length },
-    { key: 'screening', label: 'Screening', count: allRoles.filter(r => r.currentStage === 'screening').length },
-    { key: 'interview', label: 'Interviews', count: allRoles.filter(r => ['interview1', 'interview2'].includes(r.currentStage)).length },
-    { key: 'offer', label: 'Offers', count: allRoles.filter(r => r.currentStage === 'offer').length },
-    { key: 'rejected', label: 'Rejected', count: allRoles.filter(r => r.currentStage === 'rejected').length }
-  ]
+  const statusFilters = useMemo(() => {
+    const j = jobCounts
+    return [
+      { key: 'active', label: 'Active', count: j?.active ?? 0 },
+      { key: 'all', label: 'All', count: j?.total ?? 0 },
+      { key: 'applied', label: 'Applied', count: j?.applied ?? 0 },
+      { key: 'screening', label: 'Screening', count: j?.screening ?? 0 },
+      { key: 'interview', label: 'Interviews', count: j?.interviews ?? 0 },
+      { key: 'offer', label: 'Offers', count: j?.offers ?? 0 },
+      { key: 'rejected', label: 'Rejected', count: j?.rejected ?? 0 }
+    ]
+  }, [jobCounts])
 
   // Sort helpers
   const getCompanySortValue = (company, sortBy) => {
@@ -202,11 +436,10 @@ const TrackerMain = () => {
     .map(company => {
       const filteredRoles = company.roles.filter(role => {
         const matchesFilter = selectedFilter === 'all' || 
-              (selectedFilter === 'active' && role.currentStage !== 'rejected') ||
-              (selectedFilter === 'today' && isUpdatedToday(role)) ||
+              (selectedFilter === 'active' && !['rejected', 'offer'].includes(role.currentStage)) ||
               (selectedFilter === 'applied' && role.currentStage === 'applied') ||
               (selectedFilter === 'screening' && role.currentStage === 'screening') ||
-              (selectedFilter === 'interview' && ['interview1', 'interview2'].includes(role.currentStage)) ||
+              (selectedFilter === 'interview' && INTERVIEW_STAGES.includes(role.currentStage)) ||
               (selectedFilter === 'offer' && role.currentStage === 'offer') ||
               (selectedFilter === 'rejected' && role.currentStage === 'rejected')
         
@@ -277,6 +510,9 @@ const TrackerMain = () => {
         return 0
       }
     })
+
+  const visibleRoleCount = filteredCompanies.reduce((sum, c) => sum + c.roles.length, 0)
+  const loadedRoleCount = allRoles.length
 
   // Handle sort change
   const handleSortChange = (newSortBy) => {
@@ -349,45 +585,29 @@ const TrackerMain = () => {
         Contact: formData.contact,
         Current_Stage: formData.currentStage
       })
-      
-      // Optimized update: only update the specific job in state without reloading everything
-      setCompaniesData(prevData => {
-        return prevData.map(company => ({
-          ...company,
-          roles: company.roles.map(role => {
-            if (role.id === formData.id) {
-              // Update the role with new data
-              const updatedRole = {
-                ...role,
-                position: formData.position,
-                location: formData.location,
-                salary: formData.salary,
-                contact: formData.contact,
-                currentStage: formData.currentStage,
-                lastUpdated: 'Just now'
+
+      const details = await getJobDetails(formData.id)
+      setLoadedJobs((prev) =>
+        prev.map((job) =>
+          job.id === formData.id
+            ? {
+                ...job,
+                Job_Title: formData.position,
+                Location: formData.location,
+                Salary: formData.salary,
+                Contact: formData.contact,
+                Current_Stage: formData.currentStage,
+                Last_Updated: Timestamp.now(),
+                Update_Time: Timestamp.now(),
+                details
               }
-              
-              // Update the stages to reflect the new current stage
-              const updatedStages = { ...role.stages }
-              Object.keys(updatedStages).forEach(stageName => {
-                if (updatedStages[stageName]) {
-                  updatedStages[stageName] = {
-                    ...updatedStages[stageName],
-                    current: stageName === formData.currentStage,
-                    completed: stageName !== formData.currentStage && updatedStages[stageName].completed
-                  }
-                }
-              })
-              
-              return { ...updatedRole, stages: updatedStages }
-            }
-            return role
-          })
-        }))
-      })
-      
+            : job
+        )
+      )
+
       setEditingRole(null)
       setEditingCompany(null)
+      await refreshJobCounts()
     } catch (error) {
       throw error // Re-throw to let Role_Edit handle the error toast
     }
@@ -396,9 +616,8 @@ const TrackerMain = () => {
   // Handle refreshing data after email stage change
   const handleRefreshAfterStageChange = async () => {
     try {
-      const jobs = await getJobsByTrackingCode(userData.emailCode)
-      const transformedData = transformJobsForDashboard(jobs)
-      setCompaniesData(transformedData)
+      await refreshJobsFromStart({ showFullPageSpinner: false })
+      await refreshJobCounts()
     } catch (error) {
       // Error refreshing data
     }
@@ -408,12 +627,10 @@ const TrackerMain = () => {
   const handleSaveManualApplication = async (formData) => {
     try {
       await addManualJob(formData, userData.emailCode, userData.id)
-      
-      // Refresh data
-      const jobs = await getJobsByTrackingCode(userData.emailCode)
-      const transformedData = transformJobsForDashboard(jobs)
-      setCompaniesData(transformedData)
-      
+
+      await refreshJobsFromStart({ showFullPageSpinner: false })
+      await refreshJobCounts()
+
       setShowManualApply(false)
     } catch (error) {
       throw error // Re-throw to let Manual_Apply handle the error toast
@@ -442,12 +659,10 @@ const TrackerMain = () => {
       await deleteJob(deleteConfirmation.job.id)
       
       showToast('Application deleted successfully', 'success')
-      
-      // Refresh data
-      const jobs = await getJobsByTrackingCode(userData.emailCode)
-      const transformedData = transformJobsForDashboard(jobs)
-      setCompaniesData(transformedData)
-      
+
+      await refreshJobsFromStart({ showFullPageSpinner: false })
+      await refreshJobCounts()
+
       // Close modal
       setDeleteConfirmation({ isOpen: false, job: null, company: null })
     } catch (error) {
@@ -478,9 +693,8 @@ const TrackerMain = () => {
   // Handle merge completion - refresh data
   const handleMergeComplete = async () => {
     try {
-      const jobs = await getJobsByTrackingCode(userData.emailCode)
-      const transformedData = transformJobsForDashboard(jobs)
-      setCompaniesData(transformedData)
+      await refreshJobsFromStart({ showFullPageSpinner: false })
+      await refreshJobCounts()
     } catch (error) {
       showToast('Failed to refresh data after merge', 'error')
     }
@@ -500,30 +714,51 @@ const TrackerMain = () => {
     setMergeJob({ isOpen: false, sourceJob: null, company: null })
   }
 
+  const handleConfirmAutoCloseStale = async () => {
+    if (!userData?.emailCode) return
+    setAutoCloseRunning(true)
+    try {
+      const result = await closeStaleOpenJobs(userData.emailCode, autoCloseMonths)
+      if (result.closedCount > 0) {
+        showToast(
+          `Marked ${result.closedCount} application(s) as rejected (applied more than ${autoCloseMonths} month(s) ago).`,
+          'success'
+        )
+        await refreshJobsFromStart({ showFullPageSpinner: false })
+        await refreshJobCounts()
+      } else {
+        showToast('No open applications were old enough to close.', 'info')
+      }
+      setAutoCloseModalOpen(false)
+    } catch (err) {
+      showToast(err?.message || 'Failed to auto-close applications', 'error')
+    } finally {
+      setAutoCloseRunning(false)
+    }
+  }
+
+  // Auth still resolving (refresh / first paint) — avoid demo or bogus "no tracking code" flash
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: theme.background.secondary }}>
+        <div className="text-center">
+          <DashboardSpinner theme={theme} size="lg" className="mx-auto mb-4" />
+          <p style={{ color: theme.text.secondary }}>Signing you in…</p>
+        </div>
+      </div>
+    )
+  }
 
   // Not logged in state
   if (!isAuthenticated) {
     return <DashboardDemo />
   }
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: theme.background.secondary }}>
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-t-transparent rounded-full animate-spin mx-auto mb-4" 
-               style={{ borderColor: theme.primary[600], borderTopColor: 'transparent' }}></div>
-          <p style={{ color: theme.text.secondary }}>Loading your applications...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Error state
+  // Error state (keep layout minimal; no blank dashboard shell for hard errors)
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: theme.background.secondary }}>
-        <div className="text-center max-w-md">
+        <div className="text-center max-w-md px-4">
           <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" 
                style={{ backgroundColor: theme.status.rejected + '20' }}>
             <span className="text-4xl">⚠️</span>
@@ -533,8 +768,17 @@ const TrackerMain = () => {
           </h3>
           <p className="mb-4" style={{ color: theme.text.secondary }}>{error}</p>
           <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 rounded-lg font-medium"
+            type="button"
+            onClick={() => {
+              setError(null)
+              if (userData?.emailCode) {
+                refreshJobsFromStart({ showFullPageSpinner: true })
+                refreshJobCounts()
+              } else {
+                window.location.reload()
+              }
+            }}
+            className="px-4 py-2 rounded-lg font-medium transition-opacity hover:opacity-90"
             style={{ backgroundColor: theme.primary[600], color: theme.text.inverse }}
           >
             Retry
@@ -572,8 +816,12 @@ const TrackerMain = () => {
           </div>
         </div>
 
+        {loading ? (
+          <DashboardInitialSkeleton theme={theme} />
+        ) : (
+          <>
         {/* Quick Stats - Horizontal Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
           <div 
             className="rounded-2xl p-6 shadow-sm border"
             style={{ 
@@ -590,33 +838,9 @@ const TrackerMain = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <span className="text-2xl font-bold" style={{ color: theme.text.primary }}>{stats.total}</span>
+              <span className="text-2xl font-bold" style={{ color: theme.text.primary }}>{statCards.total == null ? '—' : statCards.total}</span>
             </div>
             <p className="text-sm font-medium" style={{ color: theme.text.secondary }}>Total Applications</p>
-          </div>
-
-          <div 
-            className="rounded-2xl p-6 shadow-sm border"
-            style={{ 
-              backgroundColor: theme.background.primary,
-              borderColor: theme.border.light
-            }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div 
-                className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ backgroundColor: theme.status.offer + '20' }}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: theme.status.offer }}>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <span className="text-2xl font-bold" style={{ color: theme.text.primary }}>{stats.updatedToday}</span>
-            </div>
-            <p className="text-sm font-medium" style={{ color: theme.text.secondary }}>Updated Today</p>
-            {stats.updatedToday > 0 && (
-              <p className="text-xs mt-1" style={{ color: theme.text.tertiary }}>New emails received</p>
-            )}
           </div>
 
           <div 
@@ -635,7 +859,7 @@ const TrackerMain = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <span className="text-2xl font-bold" style={{ color: theme.text.primary }}>{stats.active}</span>
+              <span className="text-2xl font-bold" style={{ color: theme.text.primary }}>{statCards.active == null ? '—' : statCards.active}</span>
             </div>
             <p className="text-sm font-medium" style={{ color: theme.text.secondary }}>Active</p>
           </div>
@@ -656,11 +880,18 @@ const TrackerMain = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
-              <span className="text-2xl font-bold" style={{ color: theme.text.primary }}>{stats.interviews}</span>
+              <span className="text-2xl font-bold" style={{ color: theme.text.primary }}>{statCards.interviews == null ? '—' : statCards.interviews}</span>
             </div>
             <p className="text-sm font-medium" style={{ color: theme.text.secondary }}>Interviews</p>
           </div>
         </div>
+
+        <p className="text-xs mb-6 -mt-4" style={{ color: theme.text.tertiary }}>
+          Showing {visibleRoleCount} application{visibleRoleCount !== 1 ? 's' : ''}
+          {loadedRoleCount !== visibleRoleCount ? ` (${loadedRoleCount} loaded for this filter)` : ''}
+          {' '}(newest first)
+          {hasMoreJobs ? ' — scroll down to load more' : loadedRoleCount > 0 ? ' — all loaded for this filter' : ''}
+        </p>
 
         {/* Filters and Search */}
         <div className="mb-6">
@@ -827,6 +1058,59 @@ const TrackerMain = () => {
             </div>
           </div>
 
+          {/* Auto-close stale applications (open roles older than X months → rejected) */}
+          <div
+            className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 p-4 rounded-xl border mb-4"
+            style={{
+              backgroundColor: theme.background.primary,
+              borderColor: theme.border.medium
+            }}
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold" style={{ color: theme.text.primary }}>
+                Auto-disqualify stale applications
+              </p>
+              <p className="text-xs mt-1" style={{ color: theme.text.secondary }}>
+                Marks open roles (not offer or rejected) as rejected if their applied date is older than your threshold. Jobs without an applied date are skipped. This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-sm whitespace-nowrap" style={{ color: theme.text.secondary }}>
+                Older than
+              </label>
+              <select
+                value={autoCloseMonths}
+                onChange={(e) => setAutoCloseMonths(Number(e.target.value))}
+                disabled={autoCloseRunning}
+                className="px-3 py-2 rounded-lg border text-sm font-medium"
+                style={{
+                  backgroundColor: theme.background.secondary,
+                  borderColor: theme.border.medium,
+                  color: theme.text.primary
+                }}
+              >
+                {autoCloseMonthOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m} {m === 1 ? 'month' : 'months'}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setAutoCloseModalOpen(true)}
+                disabled={autoCloseRunning}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50"
+                style={{
+                  backgroundColor: theme.status.rejected + '25',
+                  color: theme.status.rejected,
+                  border: `1px solid ${theme.status.rejected}55`
+                }}
+              >
+                Apply rule
+              </button>
+            </div>
+          </div>
+
           {/* Status Filters - Scrollable on Mobile */}
           <div className="overflow-x-auto pb-2 -mx-4 px-4 lg:mx-0 lg:px-0">
             <div className="flex gap-2 min-w-max lg:min-w-0 lg:flex-wrap">
@@ -862,39 +1146,81 @@ const TrackerMain = () => {
           </div>
         </div>
 
-        {/* Companies List Grouped by Company */}
-        <div className="space-y-6">
-          {filteredCompanies.map((company) => (
+        {/* Companies List Grouped by Company — filter changes refresh here only (no full-page skeleton) */}
+        <div className="relative space-y-10 min-h-[120px]">
+          {listRefreshing && (
             <div
-              key={company.id}
-              className="rounded-xl shadow-md border"
-              style={{ backgroundColor: theme.background.primary, borderColor: theme.border.light }}
+              className="absolute inset-0 z-10 flex flex-col items-center justify-start pt-16 rounded-xl pointer-events-auto"
+              style={{ backgroundColor: `${theme.background.secondary}cc` }}
+              aria-busy="true"
+              aria-label="Updating list"
             >
-              {/* Company Header */}
-              <div className="px-6 py-4 border-b" style={{ borderColor: theme.border.light }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+              <div className="relative mb-3 flex items-center justify-center">
+                <DashboardSpinner theme={theme} size="md" withGlow />
+              </div>
+              <p className="text-sm font-medium" style={{ color: theme.text.secondary }}>
+                Updating list…
+              </p>
+            </div>
+          )}
+          <div className={listRefreshing ? 'opacity-50 motion-reduce:opacity-100' : ''}>
+          {filteredCompanies.map((company) => (
+            <section
+              key={company.id}
+              className="rounded-2xl overflow-hidden border shadow-lg transition-shadow hover:shadow-xl"
+              style={{
+                backgroundColor: theme.background.primary,
+                borderColor: theme.border.medium,
+                boxShadow: isDarkMode
+                  ? '0 10px 36px -10px rgba(0, 0, 0, 0.5)'
+                  : '0 8px 30px -8px rgba(15, 23, 42, 0.12)'
+              }}
+              aria-labelledby={`company-heading-${company.id}`}
+            >
+              {/* Company accent */}
+              <div
+                className="h-1 w-full"
+                style={{
+                  background: `linear-gradient(90deg, ${theme.primary[600]}, ${theme.primary[400]})`
+                }}
+                aria-hidden
+              />
+
+              {/* Company header — distinct band */}
+              <div
+                className="px-5 py-4 sm:px-6 sm:py-5 border-b"
+                style={{
+                  backgroundColor: theme.background.secondary,
+                  borderColor: theme.border.light
+                }}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4 min-w-0">
                     <div
-                      className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0"
+                      className="w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0 shadow-md"
                       style={{ backgroundColor: theme.primary[600] }}
                     >
                       {company.logo}
                     </div>
-                    <div>
-                      <h3 className="text-xl font-bold" style={{ color: theme.text.primary }}>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: theme.text.tertiary }}>
+                        Company
+                      </p>
+                      <h3 id={`company-heading-${company.id}`} className="text-xl font-bold truncate" style={{ color: theme.text.primary }}>
                         {company.company}
                       </h3>
-                      <p className="text-sm" style={{ color: theme.text.tertiary }}>
-                        {company.location} • {company.roles.length} {company.roles.length === 1 ? 'Role' : 'Roles'}
+                      <p className="text-sm mt-0.5" style={{ color: theme.text.secondary }}>
+                        {company.location ? `${company.location} · ` : ''}
+                        {company.roles.length} {company.roles.length === 1 ? 'application' : 'applications'}
                       </p>
                     </div>
                   </div>
-                  
-                  {/* Merge Company Button */}
+
                   <button
+                    type="button"
                     onClick={() => handleMergeRequest(company)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all hover:shadow-md"
-                    style={{ 
+                    className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all hover:shadow-md"
+                    style={{
                       backgroundColor: theme.secondary[100],
                       color: theme.secondary[600],
                       border: `1px solid ${theme.secondary[200]}`
@@ -909,19 +1235,55 @@ const TrackerMain = () => {
                 </div>
               </div>
 
-              {/* Roles List */}
-              <div className="divide-y" style={{ borderColor: theme.border.light }}>
-                {company.roles.map((role) => {
+              {/* Roles — each application is its own card */}
+              <div
+                className="p-4 sm:p-5 flex flex-col gap-4"
+                style={{ backgroundColor: theme.background.secondary }}
+              >
+                {company.roles.map((role, roleIndex) => {
                   const isExpanded = expandedRoles.has(role.id)
                   const stageInfo = getStageInfo(role.currentStage)
-                  
+
                   return (
-                    <div key={role.id} className="transition-all">
-                      {/* High-Level Overview - Clickable */}
-                      <div 
-                        className="px-6 py-4 cursor-pointer hover:bg-opacity-50 transition-all"
-                        style={{ backgroundColor: isExpanded ? theme.background.secondary : 'transparent' }}
+                    <article
+                      key={role.id}
+                      className="rounded-xl border overflow-hidden transition-all duration-200 hover:shadow-md"
+                      style={{
+                        backgroundColor: theme.background.primary,
+                        borderColor: theme.border.light,
+                        boxShadow: isExpanded
+                          ? isDarkMode
+                            ? '0 8px 28px -4px rgba(0, 0, 0, 0.5)'
+                            : '0 6px 24px -6px rgba(15, 23, 42, 0.14)'
+                          : isDarkMode
+                            ? '0 1px 3px rgba(0, 0, 0, 0.35)'
+                            : '0 1px 3px rgba(15, 23, 42, 0.06)'
+                      }}
+                    >
+                      {company.roles.length > 1 && (
+                        <div
+                          className="px-4 sm:px-5 pt-3 flex items-center justify-between border-b"
+                          style={{ borderColor: theme.border.light, backgroundColor: theme.background.secondary }}
+                        >
+                          <span
+                            className="text-[11px] font-semibold uppercase tracking-wider"
+                            style={{ color: theme.text.tertiary }}
+                          >
+                            Application {roleIndex + 1} of {company.roles.length}
+                          </span>
+                          <span className="text-[11px] hidden sm:inline" style={{ color: theme.text.tertiary }}>
+                            Tap row to expand timeline
+                          </span>
+                        </div>
+                      )}
+
+                      <div
+                        className="px-4 py-4 sm:px-5 sm:py-5 cursor-pointer transition-colors"
+                        style={{
+                          backgroundColor: isExpanded ? theme.background.secondary : theme.background.primary
+                        }}
                         onClick={() => toggleRoleExpansion(role.id)}
+                        aria-expanded={isExpanded}
                       >
                         <div className="flex items-center gap-4">
                           {/* Expand/Collapse Icon */}
@@ -1078,15 +1440,15 @@ const TrackerMain = () => {
 
                       {/* Expanded Details - Stage Workflow */}
                       {isExpanded && (
-                        <div 
-                          className="px-6 py-6 border-t"
-                          style={{ 
+                        <div
+                          className="px-4 py-5 sm:px-5 sm:py-6 border-t"
+                          style={{
                             backgroundColor: theme.background.secondary,
-                            borderColor: theme.border.light 
+                            borderColor: theme.border.light
                           }}
                         >
                           <h5 className="text-sm font-semibold mb-4 uppercase tracking-wide" style={{ color: theme.text.secondary }}>
-                            Application Timeline
+                            Application timeline
                           </h5>
                           
                           {/* Detailed Stage Timeline */}
@@ -1192,16 +1554,46 @@ const TrackerMain = () => {
                           </div>
                         </div>
                       )}
-                    </div>
+                    </article>
                   )
                 })}
               </div>
-            </div>
+            </section>
           ))}
+          </div>
         </div>
 
-        {/* Empty State */}
-        {filteredCompanies.length === 0 && (
+        {hasMoreJobs && !loading && !listRefreshing && (
+          <div
+            ref={loadMoreSentinelRef}
+            className="flex flex-col items-center justify-center py-10 min-h-[5rem]"
+            aria-hidden
+          >
+            {loadingMore && (
+              <>
+                <DashboardSpinner theme={theme} size="sm" />
+                <p className="text-sm mt-2" style={{ color: theme.text.secondary }}>
+                  Loading more…
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Filter / search: nothing matches but more pages may exist */}
+        {filteredCompanies.length === 0 && loadedJobs.length > 0 && (
+          <div className="text-center py-10 px-4">
+            <p className="text-sm font-medium mb-1" style={{ color: theme.text.primary }}>
+              No applications match your search or filters
+            </p>
+            <p className="text-xs" style={{ color: theme.text.secondary }}>
+              {hasMoreJobs ? 'Scroll down — older applications may load and match.' : 'Try changing filters or search.'}
+            </p>
+          </div>
+        )}
+
+        {/* Empty State — no data at all */}
+        {filteredCompanies.length === 0 && loadedJobs.length === 0 && !hasMoreJobs && (
           <div className="text-center py-12">
             <div className="w-24 h-24 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.primary[100] }}>
               <span className="text-4xl">📝</span>
@@ -1222,6 +1614,8 @@ const TrackerMain = () => {
               </button>
             )}
           </div>
+        )}
+          </>
         )}
       </div>
 
@@ -1275,6 +1669,62 @@ const TrackerMain = () => {
         company={mergeJob.company}
         onMergeComplete={handleMergeComplete}
       />
+
+      {autoCloseModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="auto-close-title"
+        >
+          <div
+            className="max-w-md w-full rounded-2xl shadow-xl border p-6"
+            style={{ backgroundColor: theme.background.primary, borderColor: theme.border.light }}
+          >
+            <h3 id="auto-close-title" className="text-lg font-bold mb-2" style={{ color: theme.text.primary }}>
+              Confirm auto-disqualify
+            </h3>
+            <p className="text-sm mb-3" style={{ color: theme.text.secondary }}>
+              Every open application (excluding offers and already rejected) with an applied date older than{' '}
+              <strong style={{ color: theme.text.primary }}>
+                {autoCloseMonths} {autoCloseMonths === 1 ? 'month' : 'months'}
+              </strong>{' '}
+              will be marked as rejected. This is not reversible from JobSync.
+            </p>
+            <p
+              className="text-sm font-medium mb-6 p-3 rounded-lg"
+              style={{ backgroundColor: theme.status.rejected + '18', color: theme.status.rejected }}
+            >
+              This cannot be undone. Consider exporting or noting anything you need before continuing.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => !autoCloseRunning && setAutoCloseModalOpen(false)}
+                disabled={autoCloseRunning}
+                className="px-4 py-2 rounded-lg text-sm font-medium border"
+                style={{
+                  borderColor: theme.border.medium,
+                  color: theme.text.secondary,
+                  backgroundColor: theme.background.secondary
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAutoCloseStale}
+                disabled={autoCloseRunning}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: theme.status.rejected }}
+              >
+                {autoCloseRunning ? 'Working…' : 'Yes, disqualify'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

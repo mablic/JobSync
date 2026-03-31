@@ -447,7 +447,7 @@ Respond ONLY with valid JSON in this exact format (use JSON null, not string "nu
     // Call Gemini AI with the new @google/genai API
     console.log('📤 Sending prompt to Gemini AI...');
     const response = await genAI.models.generateContent({
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-2.0-flash-lite", // Gemini 2 Flash Lite - cost-efficient, stable model
       contents: prompt,
     });
     const aiText = response.text;
@@ -681,3 +681,176 @@ async function checkRateLimit(forwarderEmail, userId) {
     return false;
   }
 }
+
+/**
+ * Scheduled function that runs every hour to retry processing failed emails
+ * Finds all emails in mailin collection where Processed=false and processes them
+ */
+exports.retryFailedEmails = functions
+  .runWith({
+    timeoutSeconds: 540, // 9 minutes (max for scheduled functions)
+    memory: '1GB'
+  })
+  .pubsub.schedule('every 1 hours')
+  .timeZone('America/New_York') // Adjust to your timezone
+  .onRun(async (context) => {
+    console.log('\n🔄 Starting scheduled retry of failed emails...');
+    
+    try {
+      const db = admin.firestore();
+      
+      // Find all emails that haven't been processed successfully
+      // Query for Processed=false OR Processing_Status='failed' OR Processed field doesn't exist
+      const failedEmailsQuery = await db.collection('mailin')
+        .where('Processed', '==', false)
+        .limit(50) // Process max 50 emails per run to avoid timeout
+        .get();
+      
+      // Also check for emails with Processing_Status='failed'
+      const statusFailedQuery = await db.collection('mailin')
+        .where('Processing_Status', '==', 'failed')
+        .limit(50)
+        .get();
+      
+      // Combine and deduplicate results
+      const emailMap = new Map();
+      
+      failedEmailsQuery.docs.forEach(doc => {
+        emailMap.set(doc.id, doc);
+      });
+      
+      statusFailedQuery.docs.forEach(doc => {
+        if (!emailMap.has(doc.id)) {
+          emailMap.set(doc.id, doc);
+        }
+      });
+      
+      const failedEmails = Array.from(emailMap.values());
+      
+      console.log(`📧 Found ${failedEmails.length} failed email(s) to retry`);
+      
+      if (failedEmails.length === 0) {
+        console.log('✅ No failed emails to process');
+        return null;
+      }
+      
+      let processedCount = 0;
+      let successCount = 0;
+      let errorCount = 0;
+      
+      // Process emails one by one sequentially to avoid rate limits
+      for (const emailDoc of failedEmails) {
+        const emailId = emailDoc.id;
+        const emailData = emailDoc.data();
+        
+        try {
+          console.log(`\n📨 Processing email ${processedCount + 1}/${failedEmails.length}: ${emailId}`);
+          
+          // Extract required fields from email document
+          const trackingCode = emailData.Tracking_Code;
+          const originalSender = emailData.Original_Sender || '';
+          const forwarderEmail = emailData.Forwarder_Email || '';
+          const subject = emailData.Subject || '';
+          const content = emailData.Content_Details || '';
+          const sentDate = emailData.Original_Sent_At || new Date().toISOString();
+          
+          // Validate required fields
+          if (!trackingCode) {
+            console.log(`⚠️  Skipping email ${emailId}: Missing Tracking_Code`);
+            await db.collection('mailin').doc(emailId).update({
+              Processing_Status: 'failed',
+              Processing_Error: 'Missing Tracking_Code field',
+              Update_Time: admin.firestore.FieldValue.serverTimestamp()
+            });
+            errorCount++;
+            continue;
+          }
+          
+          // Find user by tracking code
+          const usersRef = db.collection('users');
+          const userQuery = await usersRef.where('emailCode', '==', trackingCode).limit(1).get();
+          
+          if (userQuery.empty) {
+            console.log(`⚠️  Skipping email ${emailId}: No user found with tracking code ${trackingCode}`);
+            await db.collection('mailin').doc(emailId).update({
+              Processing_Status: 'failed',
+              Processing_Error: `No user found with tracking code: ${trackingCode}`,
+              Update_Time: admin.firestore.FieldValue.serverTimestamp()
+            });
+            errorCount++;
+            continue;
+          }
+          
+          const userId = userQuery.docs[0].id;
+          
+          // Mark as processing to avoid duplicate processing
+          await db.collection('mailin').doc(emailId).update({
+            Processing_Status: 'retrying',
+            Retry_Attempts: admin.firestore.FieldValue.increment(1),
+            Last_Retry_At: admin.firestore.FieldValue.serverTimestamp(),
+            Update_Time: admin.firestore.FieldValue.serverTimestamp()
+          });
+          
+          // Process email with AI
+          await processEmailWithAI(
+            emailId,
+            userId,
+            trackingCode,
+            originalSender,
+            forwarderEmail,
+            subject,
+            content,
+            sentDate
+          );
+          
+          // Check if processing was successful
+          const updatedDoc = await db.collection('mailin').doc(emailId).get();
+          const updatedData = updatedDoc.data();
+          
+          if (updatedData && updatedData.Processed === true) {
+            console.log(`✅ Successfully processed email ${emailId}`);
+            successCount++;
+          } else {
+            console.log(`⚠️  Email ${emailId} still marked as unprocessed`);
+            errorCount++;
+          }
+          
+          processedCount++;
+          
+          // Add a small delay between requests to avoid rate limits
+          // Wait 2 seconds between each email to be respectful of API limits
+          if (processedCount < failedEmails.length) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          
+        } catch (error) {
+          console.error(`❌ Error processing email ${emailId}:`, error);
+          errorCount++;
+          
+          // Update error status
+          try {
+            await db.collection('mailin').doc(emailId).update({
+              Processing_Status: 'failed',
+              Processing_Error: error.message,
+              Last_Retry_Error: error.message,
+              Update_Time: admin.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (updateError) {
+            console.error(`❌ Failed to update error status for ${emailId}:`, updateError);
+          }
+        }
+      }
+      
+      console.log(`\n📊 Retry Summary:`);
+      console.log(`   Total emails found: ${failedEmails.length}`);
+      console.log(`   Successfully processed: ${successCount}`);
+      console.log(`   Failed: ${errorCount}`);
+      console.log(`   Skipped: ${failedEmails.length - processedCount}`);
+      
+      return null;
+      
+    } catch (error) {
+      console.error('❌ Error in retryFailedEmails scheduled function:', error);
+      throw error;
+    }
+  });

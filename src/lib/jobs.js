@@ -1,5 +1,113 @@
 import { db } from './firebase'
-import { collection, query, where, getDocs, getDoc, orderBy, doc, updateDoc, addDoc, Timestamp, deleteDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, getDoc, orderBy, limit, startAfter, doc, updateDoc, addDoc, Timestamp, deleteDoc } from 'firebase/firestore'
+
+/** Interview rounds used in dashboard filters and “active” (non-terminal) lists */
+export const INTERVIEW_STAGES = ['interview1', 'interview2', 'interview3', 'interview4', 'interview5', 'interview6']
+
+/** Canonical stage string for queries, counts, and UI (trim + lowercase). */
+export const normalizeJobStage = (s) =>
+  s == null || String(s).trim() === '' ? 'applied' : String(s).trim().toLowerCase()
+
+/** Client-side stage check for paginated scan (matches Firestore regardless of stage casing). */
+const jobDataMatchesListFilter = (data, listFilter) => {
+  if (data._merged_into) return false
+  const stage = normalizeJobStage(data.Current_Stage)
+  switch (listFilter) {
+    case 'active':
+      return stage !== 'rejected' && stage !== 'offer'
+    case 'all':
+      return true
+    case 'rejected':
+      return stage === 'rejected'
+    case 'applied':
+    case 'screening':
+    case 'offer':
+      return stage === listFilter
+    case 'interview':
+      return INTERVIEW_STAGES.includes(stage)
+    default:
+      return stage !== 'rejected' && stage !== 'offer'
+  }
+}
+
+/**
+ * Same ordering as main query but only Tracking_Code + Last_Updated (works with the simple composite / auto index).
+ * Used when filtered query fails (usually missing index).
+ */
+const fetchJobsPageByScanning = async (trackingCode, pageSize, lastDocSnapshot, listFilter) => {
+  const tc = trackingCode.toUpperCase()
+  const CHUNK = Math.max(35, pageSize * 4)
+  const jobs = []
+  let lastScanned = lastDocSnapshot
+
+  while (jobs.length < pageSize) {
+    const constraints = [where('Tracking_Code', '==', tc), orderBy('Last_Updated', 'desc')]
+    if (lastScanned) constraints.push(startAfter(lastScanned))
+    constraints.push(limit(CHUNK))
+
+    const snapshot = await getDocs(query(collection(db, 'jobs'), ...constraints))
+    if (snapshot.empty) break
+
+    for (const docSnap of snapshot.docs) {
+      lastScanned = docSnap
+      const data = docSnap.data()
+      if (!jobDataMatchesListFilter(data, listFilter)) continue
+
+      const jobData = { id: docSnap.id, ...data }
+      try {
+        jobData.details = await getJobDetails(docSnap.id)
+      } catch {
+        jobData.details = []
+      }
+      jobs.push(jobData)
+      if (jobs.length >= pageSize) break
+    }
+
+    if (snapshot.docs.length < CHUNK) break
+  }
+
+  return {
+    jobs,
+    lastDocSnapshot: lastScanned,
+    hasMore: jobs.length === pageSize
+  }
+}
+
+/** Default page size for dashboard infinite scroll */
+export const JOBS_PAGE_SIZE = 10
+
+/** Stages counted as “active” for analytics default load (matches dashboard Active: not offer/rejected) */
+export const ANALYTICS_ACTIVE_STAGES = [
+  'applied',
+  'screening',
+  'interview1',
+  'interview2',
+  'interview3',
+  'interview4',
+  'interview5',
+  'interview6'
+]
+
+async function hydrateJobsFromSnapshot(snapshot) {
+  const jobs = []
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data()
+    if (data._merged_into) continue
+
+    const jobData = {
+      id: docSnap.id,
+      ...data
+    }
+    try {
+      jobData.details = await getJobDetails(docSnap.id)
+    } catch (e) {
+      console.warn('[jobs] getJobDetails failed for', docSnap.id, e?.code || e?.message)
+      jobData.details = []
+    }
+    jobs.push(jobData)
+  }
+  return jobs
+}
 
 /**
  * Get all jobs for a user by their tracking code
@@ -7,38 +115,147 @@ import { collection, query, where, getDocs, getDoc, orderBy, doc, updateDoc, add
  * @returns {Array} - Array of job applications with details
  */
 export const getJobsByTrackingCode = async (trackingCode) => {
+  const q = query(
+    collection(db, 'jobs'),
+    where('Tracking_Code', '==', trackingCode.toUpperCase()),
+    orderBy('Last_Updated', 'desc')
+  )
+  const snapshot = await getDocs(q)
+  return hydrateJobsFromSnapshot(snapshot)
+}
+
+/**
+ * Analytics: default `active` loads fewer Firestore rows + fewer job_details reads (faster).
+ * @param {'active'|'all'} scope
+ */
+export const getJobsByTrackingCodeForAnalytics = async (trackingCode, scope = 'active') => {
+  const tc = trackingCode.toUpperCase()
+  if (scope === 'all') {
+    return getJobsByTrackingCode(trackingCode)
+  }
+
   try {
     const q = query(
       collection(db, 'jobs'),
-      where('Tracking_Code', '==', trackingCode.toUpperCase()),
+      where('Tracking_Code', '==', tc),
+      where('Current_Stage', 'in', ANALYTICS_ACTIVE_STAGES),
       orderBy('Last_Updated', 'desc')
     )
     const snapshot = await getDocs(q)
-    
-    const jobs = []
-    for (const docSnap of snapshot.docs) {
-      const data = docSnap.data()
-      
-      // Skip jobs that have been merged into another job
-      if (data._merged_into) {
-        continue
-      }
-      
-      const jobData = {
-        id: docSnap.id,
-        ...data
-      }
-      
-      // Fetch job details for this job
-      const details = await getJobDetails(docSnap.id)
-      jobData.details = details
-      
-      jobs.push(jobData)
+    return hydrateJobsFromSnapshot(snapshot)
+  } catch (err) {
+    if (err?.code === 'failed-precondition') {
+      const all = await getJobsByTrackingCode(trackingCode)
+      return all.filter((j) => {
+        const st = normalizeJobStage(j.Current_Stage)
+        return st !== 'rejected' && st !== 'offer'
+      })
     }
-    
-    return jobs
-  } catch (error) {
-    throw error
+    throw err
+  }
+}
+
+/**
+ * Dashboard list filter keys — drives server-side pagination so the first page is not “all stages then client-filtered to empty”.
+ * @typedef {'active'|'all'|'rejected'|'applied'|'screening'|'interview'|'offer'} DashboardListFilter
+ */
+
+/**
+ * Fetch one page of jobs (most recently updated first). Single query, limit N.
+ * Merged docs are skipped but still count toward the cursor.
+ *
+ * @param {string} trackingCode
+ * @param {number} [pageSize=JOBS_PAGE_SIZE]
+ * @param {import('firebase/firestore').QueryDocumentSnapshot|null} lastDocSnapshot
+ * @param {DashboardListFilter} [listFilter='active']
+ * @returns {{ jobs: Array, lastDocSnapshot: import('firebase/firestore').QueryDocumentSnapshot|null, hasMore: boolean }}
+ */
+export const getJobsByTrackingCodePage = async (
+  trackingCode,
+  pageSize = JOBS_PAGE_SIZE,
+  lastDocSnapshot = null,
+  listFilter = 'active'
+) => {
+  const tc = trackingCode.toUpperCase()
+
+  // Any stage filter: scan by Tracking_Code + Last_Updated only so counts/list match (merged rows + stage casing).
+  if (listFilter !== 'all') {
+    return fetchJobsPageByScanning(tc, pageSize, lastDocSnapshot, listFilter)
+  }
+
+  const constraints = [where('Tracking_Code', '==', tc), orderBy('Last_Updated', 'desc')]
+  if (lastDocSnapshot) {
+    constraints.push(startAfter(lastDocSnapshot))
+  }
+  constraints.push(limit(pageSize))
+
+  const snapshot = await getDocs(query(collection(db, 'jobs'), ...constraints))
+  const jobs = []
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data()
+    if (data._merged_into) continue
+
+    const jobData = {
+      id: docSnap.id,
+      ...data
+    }
+    try {
+      jobData.details = await getJobDetails(docSnap.id)
+    } catch (e) {
+      console.warn('[jobs] getJobDetails failed for', docSnap.id, e?.code || e?.message)
+      jobData.details = []
+    }
+    jobs.push(jobData)
+  }
+
+  const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null
+  const hasMore = snapshot.docs.length === pageSize
+
+  return {
+    jobs,
+    lastDocSnapshot: lastDoc,
+    hasMore
+  }
+}
+
+const COUNT_STAGES = ['applied', 'screening', ...INTERVIEW_STAGES, 'offer', 'rejected']
+
+/**
+ * Aggregate counts for visible jobs (same rules as the list: skip merged placeholders, normalize stage casing).
+ */
+export const getDashboardJobCounts = async (trackingCode) => {
+  const tc = trackingCode.toUpperCase()
+  const snap = await getDocs(query(collection(db, 'jobs'), where('Tracking_Code', '==', tc)))
+
+  const byStage = {}
+  COUNT_STAGES.forEach((st) => {
+    byStage[st] = 0
+  })
+
+  let total = 0
+  for (const d of snap.docs) {
+    const data = d.data()
+    if (data._merged_into) continue
+    total++
+    const st = normalizeJobStage(data.Current_Stage)
+    if (COUNT_STAGES.includes(st)) {
+      byStage[st]++
+    }
+  }
+
+  const interviews = INTERVIEW_STAGES.reduce((sum, st) => sum + byStage[st], 0)
+  const active = total - byStage.rejected - byStage.offer
+
+  return {
+    total,
+    active,
+    interviews,
+    offers: byStage.offer,
+    rejected: byStage.rejected,
+    applied: byStage.applied,
+    screening: byStage.screening,
+    byStage
   }
 }
 
@@ -48,6 +265,12 @@ export const getJobsByTrackingCode = async (trackingCode) => {
  * @returns {Array} - Array of job detail records
  */
 export const getJobDetails = async (jobId) => {
+  const mapDocs = (snapshot) =>
+    snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+
   try {
     const q = query(
       collection(db, 'job_details'),
@@ -55,13 +278,25 @@ export const getJobDetails = async (jobId) => {
       orderBy('Update_Time', 'asc')
     )
     const snapshot = await getDocs(q)
-    
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
-  } catch (error) {
-    throw error
+    return mapDocs(snapshot)
+  } catch (err) {
+    if (err?.code === 'failed-precondition') {
+      try {
+        const qLoose = query(collection(db, 'job_details'), where('Job_ID', '==', jobId))
+        const snapshot = await getDocs(qLoose)
+        const rows = mapDocs(snapshot)
+        rows.sort((a, b) => {
+          const ta = a.Update_Time?.toMillis?.() ?? a.Update_Time?.seconds ?? 0
+          const tb = b.Update_Time?.toMillis?.() ?? b.Update_Time?.seconds ?? 0
+          return ta - tb
+        })
+        return rows
+      } catch (e2) {
+        console.warn('[jobs] getJobDetails fallback failed', jobId, e2?.code || e2?.message)
+        return []
+      }
+    }
+    throw err
   }
 }
 
@@ -109,8 +344,8 @@ export const transformJobsForDashboard = (jobs) => {
       })
     }
     
-    // Transform stages from job details
-    const currentStage = job.Current_Stage || 'applied'
+    // Transform stages from job details (canonical stage so filters match list + counts)
+    const currentStage = normalizeJobStage(job.Current_Stage)
     const stages = transformJobDetailsToStages(job.details || [], currentStage)
     
     // If rejected, ensure the rejected stage is properly set
@@ -783,5 +1018,96 @@ export const mergeDuplicateJobs = async (trackingCode, userId) => {
     }
   } catch (error) {
     throw error
+  }
+}
+
+/** Terminal / inactive stages — not treated as “open” applications */
+const TERMINAL_STAGES = new Set(['rejected', 'offer'])
+
+/**
+ * Parse Firestore Timestamp or Date-like value to Date
+ * @param {*} value
+ * @returns {Date|null}
+ */
+const toJsDate = (value) => {
+  if (!value) return null
+  try {
+    if (value.toDate) return value.toDate()
+    const d = new Date(value)
+    return Number.isNaN(d.getTime()) ? null : d
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Close (mark as rejected) all “open” jobs older than the given number of months.
+ * Open = Current_Stage is not rejected or offer. Age is based on Applied_Date.
+ * Uses direct job updates only so existing job_details timeline rows are not rewritten.
+ *
+ * @param {string} trackingCode - User's email tracking code
+ * @param {number} monthsThreshold - Jobs applied more than this many months ago are closed
+ * @returns {{ closedCount: number, skippedCount: number, jobIds: string[] }}
+ */
+export const closeStaleOpenJobs = async (trackingCode, monthsThreshold) => {
+  const months = Number(monthsThreshold)
+  if (!trackingCode || !Number.isFinite(months) || months < 1) {
+    throw new Error('Invalid tracking code or months threshold')
+  }
+
+  const q = query(
+    collection(db, 'jobs'),
+    where('Tracking_Code', '==', trackingCode.toUpperCase())
+  )
+  const snapshot = await getDocs(q)
+
+  const cutoff = new Date()
+  cutoff.setMonth(cutoff.getMonth() - months)
+  cutoff.setHours(0, 0, 0, 0)
+
+  const jobIds = []
+  let skippedCount = 0
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data()
+    if (data._merged_into) {
+      skippedCount++
+      continue
+    }
+
+    const stage = (data.Current_Stage || 'applied').toLowerCase()
+    if (TERMINAL_STAGES.has(stage)) {
+      skippedCount++
+      continue
+    }
+
+    const applied = toJsDate(data.Applied_Date)
+    if (!applied) {
+      skippedCount++
+      continue
+    }
+
+    const appliedDay = new Date(applied.getFullYear(), applied.getMonth(), applied.getDate())
+    if (appliedDay > cutoff) {
+      skippedCount++
+      continue
+    }
+
+    await updateDoc(doc(db, 'jobs', docSnap.id), {
+      Current_Stage: 'rejected',
+      Last_Updated: Timestamp.now(),
+      Update_Time: Timestamp.now(),
+      Notes:
+        data.Notes != null && String(data.Notes).trim() !== ''
+          ? `${data.Notes}\n[Auto-closed: applied more than ${months} month(s) ago — not reversible]`
+          : `[Auto-closed: applied more than ${months} month(s) ago — not reversible]`
+    })
+    jobIds.push(docSnap.id)
+  }
+
+  return {
+    closedCount: jobIds.length,
+    skippedCount,
+    jobIds
   }
 }
