@@ -5,7 +5,7 @@
 
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-const { GoogleGenAI } = require('@google/genai');
+const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 
 admin.initializeApp();
 
@@ -13,16 +13,41 @@ admin.initializeApp();
 const RATE_LIMIT_MAX_EMAILS = 100; // Maximum emails per day per forwarder
 const RATE_LIMIT_WINDOW_HOURS = 24; // Time window in hours
 
-// Initialize Gemini AI
-// API key should be set via: firebase functions:config:set gemini.api_key="YOUR_KEY"
-const getGeminiAI = () => {
-  const apiKey = functions.config().gemini?.api_key || process.env.VITE_GEMINI_AI_ID || process.env.GEMINI_API_KEY;
+const getDeepSeekApiKey = () => {
+  const apiKey = functions.config().deepseek?.api_key || process.env.VITE_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    console.warn('⚠️  Gemini API key not configured. AI processing will be skipped.');
+    console.warn('⚠️  DeepSeek API key not configured. AI processing will be skipped.');
     return null;
   }
-  // Pass API key directly to constructor (not via env var)
-  return new GoogleGenAI({ apiKey });
+  return apiKey;
+};
+
+const callDeepSeekAI = async (prompt) => {
+  const apiKey = getDeepSeekApiKey();
+  if (!apiKey) {
+    return null;
+  }
+
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'deepseek-chat',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`DeepSeek API error (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || '';
 };
 
 /**
@@ -195,13 +220,21 @@ exports.receiveEmail = functions
     // Decode SRS (Sender Rewriting Scheme) from Namecheap email forwarding
     // Format: SRS0=HASH=TT=domain.com=username@eforward.registrar-servers.com
     // Example: SRS0=61A8=42=gmail.com=maihe88@eforward.registrar-servers.com
+    // TT can be numeric or alphanumeric (e.g. DU)
     if (forwarderEmail && forwarderEmail.includes('SRS0=')) {
-      // Match: SRS0=hash=tt=DOMAIN=USERNAME@forwarder
-      const srsMatch = forwarderEmail.match(/SRS0=[^=]+=\d+=([^=]+)=([^@]+)@/);
+      const srsMatch = forwarderEmail.match(/SRS0=[^=]+=[^=]+=([^=]+)=([^@]+)@/);
       if (srsMatch && srsMatch.length >= 3) {
-        const domain = srsMatch[1];    // e.g., "gmail.com"
-        const username = srsMatch[2];   // e.g., "maihe88"
+        const domain = srsMatch[1];
+        const username = srsMatch[2];
         forwarderEmail = `${username}@${domain}`;
+      }
+    }
+
+    // Fallback: use From header when SRS decoding fails
+    if ((forwarderEmail.includes('eforward') || forwarderEmail.includes('SRS0=')) && headers?.From) {
+      const headerFromMatch = headers.From.match(/<?([^<\s]+@[^>\s]+)>?/);
+      if (headerFromMatch) {
+        forwarderEmail = headerFromMatch[1].trim().replace(/[<>]/g, '');
       }
     }
     
@@ -361,16 +394,13 @@ exports.receiveEmail = functions
       Subject: subject,                          // 6. Original email subject
       Content_Details: originalContent,          // 7. Original email body (cleaned plain text)
       Content_Details_html: htmlContent,         // 8. HTML content if available
-      Update_Time: admin.firestore.FieldValue.serverTimestamp(),
+      Update_Time: FieldValue.serverTimestamp(),
     });
     
     console.log(`✅ Stored email in 'mailin' collection with ID: ${emailRef.id}`);
-    
-    // Respond to CloudMailin immediately (don't wait for AI processing)
-    res.status(200).send('Email received and queued for processing');
-    
-    // Process email with AI asynchronously (don't block response)
-    processEmailWithAI(
+
+    // Process email with AI before responding so Cloud Functions does not terminate early
+    await processEmailWithAI(
       emailRef.id,
       userId,
       emailCode,
@@ -379,9 +409,9 @@ exports.receiveEmail = functions
       subject,
       originalContent,
       originalSentDate
-    ).catch(error => {
-      console.error('❌ AI processing error:', error);
-    });
+    );
+
+    res.status(200).send('Email received and processed');
     
   } catch (error) {
     console.error('Error processing email:', error);
@@ -391,7 +421,7 @@ exports.receiveEmail = functions
 });
 
 /**
- * Process email with Gemini AI to extract job application data
+ * Process email with DeepSeek AI to extract job application data
  * Creates/updates jobs collection and creates job_details entry
  */
 async function processEmailWithAI(
@@ -407,8 +437,8 @@ async function processEmailWithAI(
   try {
     console.log(`\n🤖 Starting AI analysis for email: ${emailId}`);
     
-    const genAI = getGeminiAI();
-    if (!genAI) {
+    const apiKey = getDeepSeekApiKey();
+    if (!apiKey) {
       console.log('⚠️  Skipping AI processing - API key not configured');
       return;
     }
@@ -444,13 +474,13 @@ Respond ONLY with valid JSON in this exact format (use JSON null, not string "nu
   "notes": null
 }`;
 
-    // Call Gemini AI with the new @google/genai API
-    console.log('📤 Sending prompt to Gemini AI...');
-    const response = await genAI.models.generateContent({
-      model: "gemini-2.0-flash-lite", // Gemini 2 Flash Lite - cost-efficient, stable model
-      contents: prompt,
-    });
-    const aiText = response.text;
+    // Call DeepSeek AI (deepseek-chat - cheapest model)
+    console.log('📤 Sending prompt to DeepSeek AI...');
+    const aiText = await callDeepSeekAI(prompt);
+    if (!aiText) {
+      console.log('⚠️  Skipping AI processing - no response from DeepSeek');
+      return;
+    }
     
     console.log('📥 Received AI response:', aiText.substring(0, 200));
     
@@ -525,9 +555,9 @@ Respond ONLY with valid JSON in this exact format (use JSON null, not string "nu
           Salary: aiData.salary || existingData.Salary || null,
           Location: aiData.location || existingData.Location || null,
           Contact: aiData.contact || existingData.Contact || null,
-          Last_Updated: admin.firestore.FieldValue.serverTimestamp(),
-          Update_Time: admin.firestore.FieldValue.serverTimestamp(),
-          Email_IDs: admin.firestore.FieldValue.arrayUnion(emailId),
+          Last_Updated: FieldValue.serverTimestamp(),
+          Update_Time: FieldValue.serverTimestamp(),
+          Email_IDs: FieldValue.arrayUnion(emailId),
           Notes: aiData.notes || existingData.Notes || null
         });
       } else {
@@ -548,9 +578,9 @@ Respond ONLY with valid JSON in this exact format (use JSON null, not string "nu
         Location: aiData.location || null,
         Contact: aiData.contact || null,
         Current_Stage: aiData.current_stage || 'applied',
-        Applied_Date: admin.firestore.FieldValue.serverTimestamp(),
-        Last_Updated: admin.firestore.FieldValue.serverTimestamp(),
-        Update_Time: admin.firestore.FieldValue.serverTimestamp(),
+        Applied_Date: FieldValue.serverTimestamp(),
+        Last_Updated: FieldValue.serverTimestamp(),
+        Update_Time: FieldValue.serverTimestamp(),
         Email_IDs: [emailId],
         Notes: aiData.notes || null
       };
@@ -572,7 +602,7 @@ Respond ONLY with valid JSON in this exact format (use JSON null, not string "nu
       Sent_Date: sentDate,
       Content_Summary: aiData.email_summary || content.substring(0, 200),
       Notes: aiData.notes || null,
-      Update_Time: admin.firestore.FieldValue.serverTimestamp()
+      Update_Time: FieldValue.serverTimestamp()
     };
     
     let jobDetailsRef;
@@ -589,20 +619,21 @@ Respond ONLY with valid JSON in this exact format (use JSON null, not string "nu
         Processed: true,
         Job_ID: jobId,
         Processing_Status: 'completed',
-        Update_Time: admin.firestore.FieldValue.serverTimestamp()
+        Update_Time: FieldValue.serverTimestamp()
       });
     } catch (updateError) {
       // Non-critical error, continue execution
     }
     
   } catch (error) {
+    console.error('❌ AI processing error:', error);
     // Mark email as failed
     try {
       await admin.firestore().collection('mailin').doc(emailId).update({
         Processed: false,
         Processing_Status: 'failed',
         Processing_Error: error.message,
-        Update_Time: admin.firestore.FieldValue.serverTimestamp()
+        Update_Time: FieldValue.serverTimestamp()
       });
     } catch (updateError) {
       // Failed to update error status
@@ -639,9 +670,9 @@ async function checkRateLimit(forwarderEmail, userId) {
           user_id: userId,
           count: 1,
           date: dateKey,
-          window_start: admin.firestore.Timestamp.fromDate(now),
-          last_email: admin.firestore.Timestamp.fromDate(now),
-          created_at: admin.firestore.FieldValue.serverTimestamp()
+          window_start: Timestamp.fromDate(now),
+          last_email: Timestamp.fromDate(now),
+          created_at: FieldValue.serverTimestamp()
         });
         return { isLimited: false, count: 1 };
       }
@@ -655,8 +686,8 @@ async function checkRateLimit(forwarderEmail, userId) {
         
         // Update rejected count for monitoring
         transaction.update(rateLimitRef, {
-          rejected_count: admin.firestore.FieldValue.increment(1),
-          last_rejected: admin.firestore.Timestamp.fromDate(now)
+          rejected_count: FieldValue.increment(1),
+          last_rejected: Timestamp.fromDate(now)
         });
         
         return { isLimited: true, count: currentCount };
@@ -664,8 +695,8 @@ async function checkRateLimit(forwarderEmail, userId) {
       
       // Increment counter
       transaction.update(rateLimitRef, {
-        count: admin.firestore.FieldValue.increment(1),
-        last_email: admin.firestore.Timestamp.fromDate(now)
+        count: FieldValue.increment(1),
+        last_email: Timestamp.fromDate(now)
       });
       
       return { isLimited: false, count: currentCount + 1 };
@@ -760,7 +791,7 @@ exports.retryFailedEmails = functions
             await db.collection('mailin').doc(emailId).update({
               Processing_Status: 'failed',
               Processing_Error: 'Missing Tracking_Code field',
-              Update_Time: admin.firestore.FieldValue.serverTimestamp()
+              Update_Time: FieldValue.serverTimestamp()
             });
             errorCount++;
             continue;
@@ -775,7 +806,7 @@ exports.retryFailedEmails = functions
             await db.collection('mailin').doc(emailId).update({
               Processing_Status: 'failed',
               Processing_Error: `No user found with tracking code: ${trackingCode}`,
-              Update_Time: admin.firestore.FieldValue.serverTimestamp()
+              Update_Time: FieldValue.serverTimestamp()
             });
             errorCount++;
             continue;
@@ -786,9 +817,9 @@ exports.retryFailedEmails = functions
           // Mark as processing to avoid duplicate processing
           await db.collection('mailin').doc(emailId).update({
             Processing_Status: 'retrying',
-            Retry_Attempts: admin.firestore.FieldValue.increment(1),
-            Last_Retry_At: admin.firestore.FieldValue.serverTimestamp(),
-            Update_Time: admin.firestore.FieldValue.serverTimestamp()
+            Retry_Attempts: FieldValue.increment(1),
+            Last_Retry_At: FieldValue.serverTimestamp(),
+            Update_Time: FieldValue.serverTimestamp()
           });
           
           // Process email with AI
@@ -833,7 +864,7 @@ exports.retryFailedEmails = functions
               Processing_Status: 'failed',
               Processing_Error: error.message,
               Last_Retry_Error: error.message,
-              Update_Time: admin.firestore.FieldValue.serverTimestamp()
+              Update_Time: FieldValue.serverTimestamp()
             });
           } catch (updateError) {
             console.error(`❌ Failed to update error status for ${emailId}:`, updateError);
